@@ -8,20 +8,20 @@ Critical context:
 - Do not recreate feature engineering logic from raw CSVs.
 - Use the feature table schema as source of truth.
 - Read `backend/data_processing/inibsa_feature_tables.xlsx` before coding.
-- If parquet columns differ from assumptions, follow Excel naming/ownership rules.
+- If CSV/parquet columns differ from assumptions, follow Excel naming/ownership rules.
 
 Input data contract:
-- Base path pattern: backend/processed_data/<mode>/features/
+- Base path pattern: backend/processed_data/<mode>/
 - Mode: historical or daily
 - Files required:
-  - client_features.parquet
-  - client_product_features.parquet (optional enrichment)
+  - clients.csv
+  - client_product_features.csv (optional enrichment)
 
 Schema contract:
 - Source of truth: `backend/data_processing/inibsa_feature_tables.xlsx`
-- Validate that `client_features.parquet` contains the exact columns required by the Excel for clustering-ready client behavior features.
+- Validate that `clients.csv` contains the exact columns required by the Excel for clustering-ready client behavior features.
 
-Primary features expected in client_features.parquet:
+Primary features expected in clients.csv:
 - customer_total_revenue
 - customer_total_orders
 - customer_avg_ticket
@@ -34,7 +34,7 @@ Primary features expected in client_features.parquet:
 Tasks:
 1. Implement CommodityCustomerCluster in a modular way.
 2. Build a preparation method that:
-   - Loads parquet tables for a given mode.
+   - Loads CSV tables for a given mode, with parquet fallback for backward compatibility.
   - Validates schema against the Excel definition.
    - Validates required columns.
    - Handles missing values with simple explicit rules (median/zero as justified).

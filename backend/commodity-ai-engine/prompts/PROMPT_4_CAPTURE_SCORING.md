@@ -11,12 +11,12 @@ Critical context:
 - Treat Excel definitions as the final schema contract.
 
 Input data contract:
-- Feature path: backend/processed_data/<mode>/features/
+- Feature path: backend/processed_data/<mode>/
 - Commodity output path: backend/commodity-ai-engine/output/<mode>/
 - Required files:
   - demand_leakage_signals.parquet
-  - client_features.parquet
-  - product_features.parquet
+  - clients.csv
+  - products.csv
   - cluster_assignments.parquet (if available)
 
 Schema contract:

@@ -11,11 +11,11 @@ Critical context:
 - Apply Excel ownership/naming rules as source of truth.
 
 Input data contract:
-- Feature path: backend/processed_data/<mode>/features/
+- Feature path: backend/processed_data/<mode>/
 - Commodity output path: backend/commodity-ai-engine/output/<mode>/
 - Required files:
-  - client_product_features.parquet
-  - client_features.parquet
+  - client_product_features.csv
+  - clients.csv
   - capture_opportunities.parquet
   - cluster_assignments.parquet (optional but recommended)
 

@@ -11,12 +11,12 @@ Critical context:
 - Enforce Excel table/column contract as source of truth.
 
 Input data contract:
-- Feature path: backend/processed_data/<mode>/features/
+- Feature path: backend/processed_data/<mode>/
 - Commodity output path: backend/commodity-ai-engine/output/<mode>/
 - Required files:
   - consumption_forecast.parquet
-  - client_product_features.parquet
-  - client_features.parquet
+  - client_product_features.csv
+  - clients.csv
 
 Schema contract:
 - Source of truth: `backend/data_processing/inibsa_feature_tables.xlsx`

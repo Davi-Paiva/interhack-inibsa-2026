@@ -11,17 +11,19 @@ Critical context:
 - If there is any column mismatch, Excel schema prevails.
 
 Input data contract:
-- Feature path pattern: backend/processed_data/<mode>/features/
+- Feature path pattern: backend/processed_data/<mode>/
 - Component 1 output path: backend/commodity-ai-engine/output/<mode>/
 - Required files:
-  - client_product_features.parquet
-  - product_features.parquet
-  - client_features.parquet
+  - client_product_features.csv
+  - products.csv
+  - clients.csv
+  - sales_enriched.csv
   - cluster_assignments.parquet
 
 Schema contract:
 - Source of truth: `backend/data_processing/inibsa_feature_tables.xlsx`
 - Validate client/product/client-product columns against Excel before merging.
+- Treat `customer_frequency_log1p` and `is_active_customer` as valid model extras on top of the Excel client contract.
 
 Priority columns expected:
 - Client-product:

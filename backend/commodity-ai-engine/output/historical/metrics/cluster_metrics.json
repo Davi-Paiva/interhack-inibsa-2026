@@ -1,0 +1,19 @@
+{
+  "n_clusters": 3,
+  "rows": 6364,
+  "inertia": 44031.18681905449,
+  "silhouette_score": 0.2577959937147754,
+  "davies_bouldin_score": 1.4371056216105271,
+  "calinski_harabasz_score": 1416.408399745944,
+  "cluster_counts": {
+    "0": 2830,
+    "1": 3393,
+    "2": 141
+  },
+  "cluster_labels": {
+    "0": "null_or_marginal",
+    "1": "loyal",
+    "2": "promiscuous"
+  },
+  "min_cluster_share": 0.022155876807039596
+}
