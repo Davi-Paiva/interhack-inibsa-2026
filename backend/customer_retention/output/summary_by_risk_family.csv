@@ -1,9 +1,0 @@
-risk_level,family,num_clients,avg_churn_prob,avg_days_since_last,avg_volume_change_pct
-AMARILLO,Familia T1,745,0.32,275.93,-33.83
-AMARILLO,Familia T2,407,0.31,305.52,-34.4
-NARANJA,Familia T1,190,0.69,298.57,-69.47
-NARANJA,Familia T2,84,0.69,336.62,-66.67
-ROJO,Familia T1,2081,0.67,724.1,-14.8
-ROJO,Familia T2,1205,0.65,815.97,-9.21
-VERDE,Familia T1,239,0.0,315.07,0.0
-VERDE,Familia T2,154,0.0,319.21,0.0
