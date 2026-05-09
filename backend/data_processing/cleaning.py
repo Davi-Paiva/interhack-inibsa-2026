@@ -203,13 +203,14 @@ def _build_campaigns_output(campaigns: pd.DataFrame) -> pd.DataFrame:
 
 def _build_potential_output(sales: pd.DataFrame, potential: pd.DataFrame) -> pd.DataFrame:
     current_sales = (
-        sales.groupby(["client_id", "family", "product_category"], dropna=False)["amount"]
+        sales.groupby(["client_id", "category"], dropna=False)["amount"]
         .sum()
         .reset_index(name="current_sales")
+        .rename(columns={"category": "product_category"})
     )
     output = potential.merge(
         current_sales,
-        on=["client_id", "family", "product_category"],
+        on=["client_id", "product_category"],
         how="left",
     )
     output["current_sales"] = output["current_sales"].fillna(0.0)
@@ -233,16 +234,10 @@ def _merge_datasets(
     sales: pd.DataFrame,
     clients: pd.DataFrame,
     products: pd.DataFrame,
-    potential: pd.DataFrame,
     campaigns: pd.DataFrame,
 ) -> pd.DataFrame:
     merged = sales.merge(products, on="product_id", how="left")
     merged = merged.merge(clients, on="client_id", how="left")
-    merged = merged.merge(
-        potential,
-        on=["client_id", "family"],
-        how="left",
-    )
     merged = _add_temporal_features(merged)
     merged = _add_campaign_context(merged, campaigns)
     merged["is_return"] = merged["units"].lt(0) | merged["amount"].lt(0)
@@ -357,7 +352,7 @@ def build_processed_frames(
     campaigns = clean_campaigns(raw_frames["campaigns"], config)
     potential = clean_potential(raw_frames["potential"])
 
-    sales_clean = _merge_datasets(sales, clients, products, potential, campaigns)
+    sales_clean = _merge_datasets(sales, clients, products, campaigns)
     technical_mask = sales_clean["analytic_block"].fillna("").eq(config.technical_block_name)
     sales_technical = sales_clean.loc[technical_mask].copy()
     sales_enriched = _build_sales_enriched_output(sales_clean)

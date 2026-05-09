@@ -267,9 +267,9 @@ def load_feature_source_frame(mode: RunMode, config: FeatureConfig) -> pd.DataFr
     return frame
 
 
-def _prepare_sales_frame(sales: pd.DataFrame) -> pd.DataFrame:
+def _prepare_sales_frame(sales: pd.DataFrame, *, commodity_only: bool = True) -> pd.DataFrame:
     prepared = sales.copy()
-    if "analytic_block" in prepared.columns:
+    if commodity_only and "analytic_block" in prepared.columns:
         prepared = prepared.loc[prepared["analytic_block"].fillna("").eq(COMMODITY_BLOCK_NAME)].copy()
     prepared["sale_date"] = pd.to_datetime(prepared["sale_date"], errors="coerce")
     for column in ("invoice_number", "client_id", "product_id"):
@@ -283,7 +283,11 @@ def _prepare_sales_frame(sales: pd.DataFrame) -> pd.DataFrame:
 
 
 def prepare_feature_source_frame(source_frame: pd.DataFrame) -> pd.DataFrame:
-    return _prepare_sales_frame(source_frame)
+    return _prepare_sales_frame(source_frame, commodity_only=True)
+
+
+def prepare_all_product_feature_source_frame(source_frame: pd.DataFrame) -> pd.DataFrame:
+    return _prepare_sales_frame(source_frame, commodity_only=False)
 
 
 def _build_order_frame(sales: pd.DataFrame, group_columns: list[str]) -> pd.DataFrame:
@@ -619,12 +623,13 @@ def run_feature_pipeline(
         logger.info("Daily feature mode is scaffolded but not materialized yet.")
         return {}
 
-    source_path = _resolve_source_path(mode, config)
-    sales = _prepare_sales_frame(load_feature_source_frame(mode, config))
-    frames = _empty_frames() if sales.empty else {
-        "client_features": build_client_features(sales),
-        "product_features": build_product_features(sales),
-        "client_product_features": build_client_product_features(sales),
+    source_frame = load_feature_source_frame(mode, config)
+    commodity_sales = _prepare_sales_frame(source_frame, commodity_only=True)
+    all_product_sales = _prepare_sales_frame(source_frame, commodity_only=False)
+    frames = _empty_frames() if commodity_sales.empty and all_product_sales.empty else {
+        "client_features": build_client_features(commodity_sales) if not commodity_sales.empty else pd.DataFrame(columns=CLIENT_FEATURE_COLUMNS),
+        "product_features": build_product_features(all_product_sales) if not all_product_sales.empty else pd.DataFrame(columns=PRODUCT_FEATURE_COLUMNS),
+        "client_product_features": build_client_product_features(commodity_sales) if not commodity_sales.empty else pd.DataFrame(columns=CLIENT_PRODUCT_FEATURE_COLUMNS),
     }
     frames, _ = align_feature_tables_to_contract(frames)
     outputs = write_feature_frames(frames, mode=mode, config=config)
