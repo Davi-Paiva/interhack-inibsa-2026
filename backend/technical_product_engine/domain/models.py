@@ -6,7 +6,7 @@ the technical product engine system.
 """
 from dataclasses import dataclass
 from datetime import date
-from typing import Optional
+from typing import Optional, List
 
 
 @dataclass
@@ -97,4 +97,31 @@ class ClientProductFeatures:
     campaign_lift_product: float
     client_product_total_revenue: float
     client_product_total_orders: int
+
+
+@dataclass
+class ClientProductContext:
+    """Unified context containing all relevant data for a client-product relationship.
+    
+    This aggregates data from multiple sources into a single object to avoid
+    repeated lookups across different datasets.
+    """
+    # Core identifiers
+    client_id: str
+    product_id: str
+    
+    # Related entities
+    client: Client
+    product: Product
+    features: ClientProductFeatures
+    
+    # Optional related data
+    potential: Optional[Potential] = None
+    sales_history: List[SalesEnriched] = None
+    
+    def __post_init__(self):
+        """Initialize default values for mutable fields."""
+        if self.sales_history is None:
+            self.sales_history = []
+
 
