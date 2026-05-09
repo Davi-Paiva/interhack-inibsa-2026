@@ -61,3 +61,4 @@ def estimate_expected_cycle(ctx: Any, peer_cycle: Optional[float] = None) -> flo
         raw = _DEFAULT_CYCLE
 
     return max(_MIN_CYCLE, min(_MAX_CYCLE, raw))
+

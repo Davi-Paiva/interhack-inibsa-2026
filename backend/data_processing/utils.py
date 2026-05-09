@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import shutil
 from pathlib import Path
 from typing import Iterable
 
@@ -19,6 +20,18 @@ def read_csv(path: Path) -> pd.DataFrame:
 
 def ensure_directory(path: Path) -> Path:
     path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def clear_directory(path: Path) -> Path:
+    if not path.exists():
+        return ensure_directory(path)
+
+    for child in path.iterdir():
+        if child.is_dir():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
     return path
 
 

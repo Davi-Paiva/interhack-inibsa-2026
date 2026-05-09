@@ -40,7 +40,7 @@ def parse_args() -> argparse.Namespace:
         "--output-dir",
         type=Path,
         default=None,
-        help="Optional override for the processed parquet output directory.",
+        help="Optional override for the processed CSV output directory.",
     )
     parser.add_argument(
         "--sales-file",
@@ -76,11 +76,8 @@ def main() -> None:
         config=FeatureConfig(processed_data_dir=config.processed_data_dir),
     )
     print(f"Cleaning pipeline finished for '{mode}' mode.")
-    for dataset_name, output_paths in outputs.items():
-        if dataset_name == "quality_metrics":
-            print(f" - {dataset_name}: json={output_paths['json']}")
-            continue
-        print(f" - {dataset_name}: parquet={output_paths['parquet']} csv={output_paths['csv']}")
+    for dataset_name, output_path in outputs.items():
+        print(f" - {dataset_name}: csv={output_path}")
     if feature_outputs:
         print("Feature engineering finished after cleaning.")
         for artifact_name, output_path in feature_outputs.items():

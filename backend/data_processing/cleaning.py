@@ -9,6 +9,7 @@ import pandas as pd
 try:
     from .config import ProcessingConfig, RunMode
     from .utils import (
+        clear_directory,
         normalize_identifier,
         normalize_text,
         parse_datetime_series,
@@ -16,18 +17,15 @@ try:
         read_csv,
         validate_required_columns,
         write_csv_frame,
-        write_parquet_frame,
     )
     from .validation import (
-        build_drift_metrics,
-        build_quality_metrics,
         remove_non_campaign_outliers,
-        save_metrics_json,
         tag_amount_outliers,
     )
 except ImportError:
     from config import ProcessingConfig, RunMode
     from utils import (
+        clear_directory,
         normalize_identifier,
         normalize_text,
         parse_datetime_series,
@@ -35,13 +33,9 @@ except ImportError:
         read_csv,
         validate_required_columns,
         write_csv_frame,
-        write_parquet_frame,
     )
     from validation import (
-        build_drift_metrics,
-        build_quality_metrics,
         remove_non_campaign_outliers,
-        save_metrics_json,
         tag_amount_outliers,
     )
 
@@ -381,71 +375,10 @@ def build_processed_frames(
     )
 
     return {
-        "sales_clean": sales_clean,
-        "sales_technical_clean": sales_technical,
         "sales_enriched": sales_enriched,
-        "clients_clean": clients,
-        "products_clean": products,
-        "campaigns_clean": campaigns,
-        "potential_clean": potential,
         "campaigns": campaigns_output,
         "potential": potential_output,
     }
-
-
-def build_monitoring_metrics(
-    frames: Mapping[str, pd.DataFrame],
-    *,
-    mode: RunMode,
-    config: ProcessingConfig,
-) -> dict[str, Any]:
-    sales_metrics = build_quality_metrics(
-        frames["sales_clean"],
-        dataset_name="sales_clean",
-        duplicate_subset=["invoice_number", "client_id", "product_id", "sale_date"],
-    )
-    technical_sales_metrics = build_quality_metrics(
-        frames["sales_technical_clean"],
-        dataset_name="sales_technical_clean",
-        duplicate_subset=["invoice_number", "client_id", "product_id", "sale_date"],
-    )
-
-    metrics: dict[str, Any] = {
-        "mode": mode,
-        "datasets": {
-            "sales_clean": sales_metrics,
-            "sales_technical_clean": technical_sales_metrics,
-        },
-        "drift_monitoring": {"status": "not_applicable", "features": {}},
-    }
-
-    if mode == "daily":
-        historical_path = config.output_dir_for_mode("historical") / "sales_clean.parquet"
-        if historical_path.exists():
-            historical_sales = pd.read_parquet(historical_path)
-            metrics["drift_monitoring"] = build_drift_metrics(
-                historical_sales,
-                frames["sales_clean"],
-                numeric_columns=["amount", "units"],
-            )
-        else:
-            logger.warning("Historical baseline not found at %s. Drift monitoring skipped.", historical_path)
-
-    for dataset_metrics in metrics["datasets"].values():
-        if dataset_metrics["missing_ratio"] > 0.05:
-            logger.warning(
-                "%s has elevated missing ratio: %.2f%%",
-                dataset_metrics["dataset_name"],
-                dataset_metrics["missing_ratio"] * 100,
-            )
-        if dataset_metrics["invalid_date_ratio"] > 0.0:
-            logger.warning(
-                "%s has invalid dates after processing: %.2f%%",
-                dataset_metrics["dataset_name"],
-                dataset_metrics["invalid_date_ratio"] * 100,
-            )
-
-    return metrics
 
 
 def write_processed_frames(
@@ -453,21 +386,12 @@ def write_processed_frames(
     *,
     mode: RunMode,
     config: ProcessingConfig,
-) -> dict[str, dict[str, Path]]:
+) -> dict[str, Path]:
     output_dir = config.output_dir_for_mode(mode)
-    outputs: dict[str, dict[str, Path]] = {}
+    outputs: dict[str, Path] = {}
 
     for dataset_name, frame in frames.items():
-        parquet_path = output_dir / f"{dataset_name}.parquet"
-        csv_path = output_dir / f"{dataset_name}.csv"
-        outputs[dataset_name] = {
-            "parquet": write_parquet_frame(
-                frame,
-                parquet_path,
-                compression=config.parquet_compression,
-            ),
-            "csv": write_csv_frame(frame, csv_path),
-        }
+        outputs[dataset_name] = write_csv_frame(frame, output_dir / f"{dataset_name}.csv")
 
     return outputs
 
@@ -477,11 +401,7 @@ def run_cleaning_pipeline(
     mode: RunMode,
     config: ProcessingConfig,
     sales_path: Path | None = None,
-) -> dict[str, dict[str, Path]]:
+) -> dict[str, Path]:
+    clear_directory(config.output_dir_for_mode(mode))
     frames = build_processed_frames(mode=mode, config=config, sales_path=sales_path)
-    outputs = write_processed_frames(frames, mode=mode, config=config)
-    metrics = build_monitoring_metrics(frames, mode=mode, config=config)
-    metrics_path = config.metrics_dir_for_mode(mode) / "quality_metrics.json"
-    save_metrics_json(metrics, metrics_path)
-    outputs["quality_metrics"] = {"json": metrics_path}
-    return outputs
+    return write_processed_frames(frames, mode=mode, config=config)

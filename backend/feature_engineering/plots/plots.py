@@ -8,17 +8,17 @@ import plotly.express as px
 try:
     from ..config import FeatureConfig
     from ..features import CAMPAIGN_LIFT_CLIP_RANGE, COEFFICIENT_VARIATION_CLIP_RANGE, clean_feature_for_plot
-    from ..utils import read_parquet_frame
+    from ..utils import read_csv_frame
 except (ImportError, ValueError):
     from config import FeatureConfig
     from features import CAMPAIGN_LIFT_CLIP_RANGE, COEFFICIENT_VARIATION_CLIP_RANGE, clean_feature_for_plot
-    from utils import read_parquet_frame
+    from utils import read_csv_frame
 
 
 FEATURE_FILE_NAMES = {
-    "client_features": "client_features.parquet",
-    "product_features": "product_features.parquet",
-    "client_product_features": "client_product_features.parquet",
+    "client_features": "clients.csv",
+    "product_features": "products.csv",
+    "client_product_features": "client_product_features.csv",
 }
 PLOT_NAMES = [
     "Customer Frequency Distribution",
@@ -77,7 +77,7 @@ def feature_file_paths(config: FeatureConfig | None = None, mode: str = "histori
 def load_historical_feature_tables(config: FeatureConfig | None = None) -> dict[str, pd.DataFrame]:
     tables: dict[str, pd.DataFrame] = {}
     for table_name, path in feature_file_paths(config=config, mode="historical").items():
-        tables[table_name] = read_parquet_frame(path)
+        tables[table_name] = read_csv_frame(path)
     return tables
 
 

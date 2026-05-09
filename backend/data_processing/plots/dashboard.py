@@ -28,8 +28,9 @@ PROCESSED_DIR = BASE_DIR / "processed_data"
 
 
 def load_processed_sales(mode: str) -> pd.DataFrame:
-    sales_path = PROCESSED_DIR / mode / "sales_clean.parquet"
-    sales = pd.read_parquet(sales_path)
+    sales_path = PROCESSED_DIR / mode / "sales_enriched.csv"
+    sales = pd.read_csv(sales_path)
+    sales = sales.rename(columns={"date": "sale_date", "sales_value": "amount"})
     sales["sale_date"] = pd.to_datetime(sales["sale_date"], errors="coerce")
     return sales
 
@@ -41,7 +42,7 @@ def main() -> None:
     mode = st.sidebar.selectbox("Processed data", options=["historical", "daily"], index=0)
     sales = load_processed_sales(mode)
 
-    st.caption(f"Source: {PROCESSED_DIR / mode / 'sales_clean.parquet'}")
+    st.caption(f"Source: {PROCESSED_DIR / mode / 'sales_enriched.csv'}")
 
     st.plotly_chart(plot_daily_sales_time_series(sales), use_container_width=True)
     st.plotly_chart(plot_rolling_mean_std(sales), use_container_width=True)
