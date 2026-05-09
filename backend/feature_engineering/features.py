@@ -239,6 +239,18 @@ def _merge_reference_context(df: pd.DataFrame, *, mode: RunMode, config: Feature
     return enriched
 
 
+def _load_product_catalog(config: FeatureConfig) -> pd.DataFrame:
+    products_path = config.raw_data_dir / "products.csv"
+    products = (
+        read_csv_frame(products_path)
+        .rename(columns=PRODUCT_REFERENCE_COLUMNS)[["product_id", "analytic_block", "category", "family"]]
+        .assign(product_id=lambda frame: frame["product_id"].astype("string").str.strip())
+        .drop_duplicates(subset=["product_id"], keep="last")
+        .reset_index(drop=True)
+    )
+    return products
+
+
 def _validate_source_frame(df: pd.DataFrame) -> None:
     missing_columns = sorted(REQUIRED_COLUMNS - set(df.columns))
     if missing_columns:
@@ -569,11 +581,22 @@ def write_feature_frames(
     config: FeatureConfig,
 ) -> dict[str, Path]:
     output_dir = ensure_directory(config.features_dir_for_mode(mode))
+    output_frames = dict(frames)
+    product_catalog = _load_product_catalog(config)
+    output_frames["product_features"] = product_catalog.merge(
+        frames["product_features"],
+        on=["product_id", "analytic_block", "category", "family"],
+        how="left",
+    )
+    numeric_columns = output_frames["product_features"].select_dtypes(include=["number", "bool"]).columns
+    output_frames["product_features"][numeric_columns] = output_frames["product_features"][numeric_columns].fillna(0)
+    output_frames["product_features"] = output_frames["product_features"][PRODUCT_FEATURE_COLUMNS].copy()
+
     outputs: dict[str, Path] = {}
     for dataset_name, file_name in FEATURE_OUTPUT_FILES.items():
         output_key = file_name[:-4] if file_name.endswith(".csv") else dataset_name
         outputs[output_key] = write_csv_frame(
-            frames[dataset_name],
+            output_frames[dataset_name],
             output_dir / file_name,
         )
     return outputs
