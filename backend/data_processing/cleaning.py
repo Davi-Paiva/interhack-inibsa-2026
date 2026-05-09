@@ -66,7 +66,7 @@ PRODUCT_COLUMNS = {
     "Familia": "family",
 }
 CAMPAIGN_COLUMNS = {
-    "Campaña": "campaign_name",
+    "Campaña": "campaign_id",
     "Fecha inicio": "start_date",
     "Fecha fin": "end_date",
 }
@@ -114,15 +114,125 @@ def _add_temporal_features(sales: pd.DataFrame) -> pd.DataFrame:
     return enriched
 
 
-def _add_campaign_flag(sales: pd.DataFrame, campaigns: pd.DataFrame) -> pd.DataFrame:
+def _add_campaign_context(sales: pd.DataFrame, campaigns: pd.DataFrame) -> pd.DataFrame:
     enriched = sales.copy()
     enriched["is_campaign_period"] = False
+    enriched["campaign_id"] = pd.Series(pd.NA, index=enriched.index, dtype="string")
 
     for campaign in campaigns.itertuples(index=False):
         mask = enriched["sale_date"].between(campaign.start_date, campaign.end_date)
         enriched.loc[mask, "is_campaign_period"] = True
+        enriched.loc[mask, "campaign_id"] = campaign.campaign_id
 
     return enriched
+
+
+def _add_sales_enrichment_features(sales: pd.DataFrame) -> pd.DataFrame:
+    enriched = sales.copy()
+    if enriched.empty:
+        enriched["rolling_sales_7d"] = pd.Series(dtype="float64")
+        enriched["sales_delta_vs_7d"] = pd.Series(dtype="float64")
+        return enriched
+
+    daily_sales = (
+        enriched.groupby(["client_id", "product_id", "sale_date"], dropna=False)["amount"]
+        .sum()
+        .reset_index(name="daily_sales_value")
+        .sort_values(["client_id", "product_id", "sale_date"])
+        .reset_index(drop=True)
+    )
+
+    rolling = (
+        daily_sales.groupby(["client_id", "product_id"])
+        .rolling("7D", on="sale_date")["daily_sales_value"]
+        .sum()
+        .reset_index()
+        .rename(columns={"daily_sales_value": "rolling_sales_7d"})
+    )
+    daily_sales = daily_sales.merge(
+        rolling,
+        on=["client_id", "product_id", "sale_date"],
+        how="left",
+    )
+    daily_sales["previous_rolling_sales_7d"] = (
+        daily_sales.groupby(["client_id", "product_id"], dropna=False)["rolling_sales_7d"].shift(1)
+    )
+    daily_sales["sales_delta_vs_7d"] = (
+        daily_sales["rolling_sales_7d"] - daily_sales["previous_rolling_sales_7d"].fillna(0.0)
+    )
+
+    return enriched.merge(
+        daily_sales[["client_id", "product_id", "sale_date", "rolling_sales_7d", "sales_delta_vs_7d"]],
+        on=["client_id", "product_id", "sale_date"],
+        how="left",
+    )
+
+
+def _build_sales_enriched_output(sales: pd.DataFrame) -> pd.DataFrame:
+    enriched = _add_sales_enrichment_features(sales)
+    output = enriched.rename(
+        columns={
+            "invoice_number": "invoice_id",
+            "sale_date": "date",
+            "amount": "sales_value",
+        }
+    ).copy()
+    return output[
+        [
+            "invoice_id",
+            "date",
+            "client_id",
+            "product_id",
+            "units",
+            "sales_value",
+            "is_return",
+            "is_campaign_period",
+            "campaign_id",
+            "month",
+            "quarter",
+            "weekday",
+            "is_month_end",
+            "is_quarter_end",
+            "rolling_sales_7d",
+            "sales_delta_vs_7d",
+        ]
+    ].reset_index(drop=True)
+
+
+def _build_campaigns_output(campaigns: pd.DataFrame) -> pd.DataFrame:
+    output = campaigns.copy()
+    output["campaign_duration_days"] = (
+        output["end_date"].dt.normalize() - output["start_date"].dt.normalize()
+    ).dt.days.add(1)
+    return output[["campaign_id", "start_date", "end_date", "campaign_duration_days"]].reset_index(drop=True)
+
+
+def _build_potential_output(sales: pd.DataFrame, potential: pd.DataFrame) -> pd.DataFrame:
+    current_sales = (
+        sales.groupby(["client_id", "family", "product_category"], dropna=False)["amount"]
+        .sum()
+        .reset_index(name="current_sales")
+    )
+    output = potential.merge(
+        current_sales,
+        on=["client_id", "family", "product_category"],
+        how="left",
+    )
+    output["current_sales"] = output["current_sales"].fillna(0.0)
+    output["potential_gap"] = output["potential_h"] - output["current_sales"]
+    denominator = output["potential_h"].replace(0, pd.NA)
+    output["capture_ratio"] = (output["current_sales"] / denominator).fillna(0.0)
+    return output[
+        [
+            "client_id",
+            "family",
+            "product_category",
+            "potential_h",
+            "current_sales",
+            "potential_gap",
+            "capture_ratio",
+        ]
+    ].reset_index(drop=True)
 
 
 def _merge_datasets(
@@ -140,7 +250,7 @@ def _merge_datasets(
         how="left",
     )
     merged = _add_temporal_features(merged)
-    merged = _add_campaign_flag(merged, campaigns)
+    merged = _add_campaign_context(merged, campaigns)
     merged["is_return"] = merged["units"].lt(0) | merged["amount"].lt(0)
     merged = tag_amount_outliers(merged)
     return remove_non_campaign_outliers(merged)
@@ -208,15 +318,15 @@ def clean_campaigns(df: pd.DataFrame, config: ProcessingConfig) -> pd.DataFrame:
     validate_required_columns(df, CAMPAIGN_COLUMNS.keys(), "campaigns")
 
     campaigns = df.rename(columns=CAMPAIGN_COLUMNS).copy()
-    campaigns["campaign_name"] = normalize_text(campaigns["campaign_name"])
+    campaigns["campaign_id"] = normalize_text(campaigns["campaign_id"])
     campaigns["start_date"] = parse_datetime_series(campaigns["start_date"], config.date_format)
     campaigns["end_date"] = parse_datetime_series(campaigns["end_date"], config.date_format)
     campaigns = _drop_corrupted_rows(
         campaigns,
-        ["campaign_name", "start_date", "end_date"],
+        ["campaign_id", "start_date", "end_date"],
         "campaigns",
     )
-    return _keep_latest_reference(campaigns, ["campaign_name"], "campaigns")
+    return _keep_latest_reference(campaigns, ["campaign_id"], "campaigns")
 
 
 def clean_potential(df: pd.DataFrame) -> pd.DataFrame:
@@ -256,6 +366,9 @@ def build_processed_frames(
     sales_clean = _merge_datasets(sales, clients, products, potential, campaigns)
     technical_mask = sales_clean["analytic_block"].fillna("").eq(config.technical_block_name)
     sales_technical = sales_clean.loc[technical_mask].copy()
+    sales_enriched = _build_sales_enriched_output(sales_clean)
+    campaigns_output = _build_campaigns_output(campaigns)
+    potential_output = _build_potential_output(sales_clean, potential)
 
     logger.info(
         "Built processed frames: sales=%s, technical_sales=%s, clients=%s, products=%s, campaigns=%s, potential=%s",
@@ -267,16 +380,16 @@ def build_processed_frames(
         len(potential),
     )
 
-    # TODO: Add customer-level lag features once the modeling layer is introduced.
-    # TODO: Add rolling demand features once the feature engineering scope is defined.
-
     return {
         "sales_clean": sales_clean,
         "sales_technical_clean": sales_technical,
+        "sales_enriched": sales_enriched,
         "clients_clean": clients,
         "products_clean": products,
         "campaigns_clean": campaigns,
         "potential_clean": potential,
+        "campaigns": campaigns_output,
+        "potential": potential_output,
     }
 
 

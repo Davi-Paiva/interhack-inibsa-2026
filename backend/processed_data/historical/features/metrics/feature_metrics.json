@@ -1,0 +1,89 @@
+{
+  "mode": "historical",
+  "source_dataset": "sales_clean.parquet",
+  "source_rows": 98137,
+  "table_count": 3,
+  "table_metrics": {
+    "client_features": {
+      "mode": "historical",
+      "source_rows": 98137,
+      "feature_rows": 6364,
+      "feature_columns": 13,
+      "missing_ratio": 0.000629,
+      "date_span": {
+        "min": null,
+        "max": null
+      },
+      "daily_incremental_features": {
+        "status": "todo",
+        "note": "Future support should only recompute impacted entities for daily runs."
+      },
+      "feature_drift_monitoring": {
+        "status": "todo",
+        "note": "Add daily-vs-historical feature drift checks once daily feature outputs exist."
+      },
+      "feature_store_support": {
+        "status": "todo",
+        "note": "Add export adapters for an external feature store when the serving layer is defined."
+      }
+    },
+    "product_features": {
+      "mode": "historical",
+      "source_rows": 98137,
+      "feature_rows": 8,
+      "feature_columns": 11,
+      "missing_ratio": 0.0,
+      "date_span": {
+        "min": null,
+        "max": null
+      },
+      "daily_incremental_features": {
+        "status": "todo",
+        "note": "Future support should only recompute impacted entities for daily runs."
+      },
+      "feature_drift_monitoring": {
+        "status": "todo",
+        "note": "Add daily-vs-historical feature drift checks once daily feature outputs exist."
+      },
+      "feature_store_support": {
+        "status": "todo",
+        "note": "Add export adapters for an external feature store when the serving layer is defined."
+      }
+    },
+    "client_product_features": {
+      "mode": "historical",
+      "source_rows": 98137,
+      "feature_rows": 18734,
+      "feature_columns": 11,
+      "missing_ratio": 0.0,
+      "date_span": {
+        "min": null,
+        "max": null
+      },
+      "daily_incremental_features": {
+        "status": "todo",
+        "note": "Future support should only recompute impacted entities for daily runs."
+      },
+      "feature_drift_monitoring": {
+        "status": "todo",
+        "note": "Add daily-vs-historical feature drift checks once daily feature outputs exist."
+      },
+      "feature_store_support": {
+        "status": "todo",
+        "note": "Add export adapters for an external feature store when the serving layer is defined."
+      }
+    }
+  },
+  "daily_incremental_features": {
+    "status": "todo",
+    "note": "Future support should only recompute impacted entities for daily runs."
+  },
+  "feature_drift_monitoring": {
+    "status": "todo",
+    "note": "Add daily-vs-historical feature drift checks once daily feature outputs exist."
+  },
+  "feature_store_support": {
+    "status": "todo",
+    "note": "Add export adapters for an external feature store when the serving layer is defined."
+  }
+}
