@@ -1,0 +1,25 @@
+{
+  "mode": "historical",
+  "datasets": {
+    "sales_clean": {
+      "dataset_name": "sales_clean",
+      "row_count": 152618,
+      "missing_ratio": 0.09125,
+      "duplicate_ratio": 0.0,
+      "invalid_date_ratio": 0.0,
+      "outlier_ratio": 0.002641
+    },
+    "sales_technical_clean": {
+      "dataset_name": "sales_technical_clean",
+      "row_count": 54481,
+      "missing_ratio": 0.091381,
+      "duplicate_ratio": 0.0,
+      "invalid_date_ratio": 0.0,
+      "outlier_ratio": 0.006608
+    }
+  },
+  "drift_monitoring": {
+    "status": "not_applicable",
+    "features": {}
+  }
+}

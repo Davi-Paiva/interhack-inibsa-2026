@@ -1,3 +1,5 @@
 /venv/
 __init__.py
 *.cpython-*.pyc
+.venv
+.DS_Store
