@@ -239,6 +239,18 @@ def _merge_reference_context(df: pd.DataFrame, *, mode: RunMode, config: Feature
     return enriched
 
 
+def _load_product_catalog(config: FeatureConfig) -> pd.DataFrame:
+    products_path = config.raw_data_dir / "products.csv"
+    products = (
+        read_csv_frame(products_path)
+        .rename(columns=PRODUCT_REFERENCE_COLUMNS)[["product_id", "analytic_block", "category", "family"]]
+        .assign(product_id=lambda frame: frame["product_id"].astype("string").str.strip())
+        .drop_duplicates(subset=["product_id"], keep="last")
+        .reset_index(drop=True)
+    )
+    return products
+
+
 def _validate_source_frame(df: pd.DataFrame) -> None:
     missing_columns = sorted(REQUIRED_COLUMNS - set(df.columns))
     if missing_columns:
@@ -255,9 +267,9 @@ def load_feature_source_frame(mode: RunMode, config: FeatureConfig) -> pd.DataFr
     return frame
 
 
-def _prepare_sales_frame(sales: pd.DataFrame) -> pd.DataFrame:
+def _prepare_sales_frame(sales: pd.DataFrame, *, commodity_only: bool = True) -> pd.DataFrame:
     prepared = sales.copy()
-    if "analytic_block" in prepared.columns:
+    if commodity_only and "analytic_block" in prepared.columns:
         prepared = prepared.loc[prepared["analytic_block"].fillna("").eq(COMMODITY_BLOCK_NAME)].copy()
     prepared["sale_date"] = pd.to_datetime(prepared["sale_date"], errors="coerce")
     for column in ("invoice_number", "client_id", "product_id"):
@@ -271,7 +283,11 @@ def _prepare_sales_frame(sales: pd.DataFrame) -> pd.DataFrame:
 
 
 def prepare_feature_source_frame(source_frame: pd.DataFrame) -> pd.DataFrame:
-    return _prepare_sales_frame(source_frame)
+    return _prepare_sales_frame(source_frame, commodity_only=True)
+
+
+def prepare_all_product_feature_source_frame(source_frame: pd.DataFrame) -> pd.DataFrame:
+    return _prepare_sales_frame(source_frame, commodity_only=False)
 
 
 def _build_order_frame(sales: pd.DataFrame, group_columns: list[str]) -> pd.DataFrame:
@@ -569,11 +585,22 @@ def write_feature_frames(
     config: FeatureConfig,
 ) -> dict[str, Path]:
     output_dir = ensure_directory(config.features_dir_for_mode(mode))
+    output_frames = dict(frames)
+    product_catalog = _load_product_catalog(config)
+    output_frames["product_features"] = product_catalog.merge(
+        frames["product_features"],
+        on=["product_id", "analytic_block", "category", "family"],
+        how="left",
+    )
+    numeric_columns = output_frames["product_features"].select_dtypes(include=["number", "bool"]).columns
+    output_frames["product_features"][numeric_columns] = output_frames["product_features"][numeric_columns].fillna(0)
+    output_frames["product_features"] = output_frames["product_features"][PRODUCT_FEATURE_COLUMNS].copy()
+
     outputs: dict[str, Path] = {}
     for dataset_name, file_name in FEATURE_OUTPUT_FILES.items():
         output_key = file_name[:-4] if file_name.endswith(".csv") else dataset_name
         outputs[output_key] = write_csv_frame(
-            frames[dataset_name],
+            output_frames[dataset_name],
             output_dir / file_name,
         )
     return outputs
@@ -596,12 +623,13 @@ def run_feature_pipeline(
         logger.info("Daily feature mode is scaffolded but not materialized yet.")
         return {}
 
-    source_path = _resolve_source_path(mode, config)
-    sales = _prepare_sales_frame(load_feature_source_frame(mode, config))
-    frames = _empty_frames() if sales.empty else {
-        "client_features": build_client_features(sales),
-        "product_features": build_product_features(sales),
-        "client_product_features": build_client_product_features(sales),
+    source_frame = load_feature_source_frame(mode, config)
+    commodity_sales = _prepare_sales_frame(source_frame, commodity_only=True)
+    all_product_sales = _prepare_sales_frame(source_frame, commodity_only=False)
+    frames = _empty_frames() if commodity_sales.empty and all_product_sales.empty else {
+        "client_features": build_client_features(commodity_sales) if not commodity_sales.empty else pd.DataFrame(columns=CLIENT_FEATURE_COLUMNS),
+        "product_features": build_product_features(all_product_sales) if not all_product_sales.empty else pd.DataFrame(columns=PRODUCT_FEATURE_COLUMNS),
+        "client_product_features": build_client_product_features(commodity_sales) if not commodity_sales.empty else pd.DataFrame(columns=CLIENT_PRODUCT_FEATURE_COLUMNS),
     }
     frames, _ = align_feature_tables_to_contract(frames)
     outputs = write_feature_frames(frames, mode=mode, config=config)

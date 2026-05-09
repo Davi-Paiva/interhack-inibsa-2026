@@ -14,6 +14,7 @@ try:
         CLIENT_PRODUCT_FEATURE_COLUMNS,
         PRODUCT_FEATURE_COLUMNS,
         align_feature_tables_to_contract,
+        prepare_all_product_feature_source_frame,
         build_client_features,
         build_client_product_features,
         build_product_features,
@@ -28,6 +29,7 @@ except ImportError:
         CLIENT_PRODUCT_FEATURE_COLUMNS,
         PRODUCT_FEATURE_COLUMNS,
         align_feature_tables_to_contract,
+        prepare_all_product_feature_source_frame,
         build_client_features,
         build_client_product_features,
         build_product_features,
@@ -79,11 +81,11 @@ def build_config(args: argparse.Namespace) -> FeatureConfig:
     return config
 
 
-def build_feature_tables(sales) -> dict[str, object]:
+def build_feature_tables(commodity_sales, all_product_sales) -> dict[str, object]:
     return {
-        "client_features": build_client_features(sales),
-        "product_features": build_product_features(sales),
-        "client_product_features": build_client_product_features(sales),
+        "client_features": build_client_features(commodity_sales),
+        "product_features": build_product_features(all_product_sales),
+        "client_product_features": build_client_product_features(commodity_sales),
     }
 
 
@@ -106,10 +108,15 @@ def run_historical_feature_flow(config: FeatureConfig) -> dict[str, object]:
     source_frame = load_feature_source_frame("historical", config)
 
     logger.info("Feature pipeline stage: prepare feature source")
-    sales = prepare_feature_source_frame(source_frame)
+    commodity_sales = prepare_feature_source_frame(source_frame)
+    all_product_sales = prepare_all_product_feature_source_frame(source_frame)
 
     logger.info("Feature pipeline stage: generate feature tables")
-    tables = build_feature_tables(sales) if not sales.empty else empty_feature_tables()
+    tables = (
+        build_feature_tables(commodity_sales, all_product_sales)
+        if not commodity_sales.empty or not all_product_sales.empty
+        else empty_feature_tables()
+    )
     tables, _ = align_feature_tables_to_contract(tables)
 
     logger.info("Feature pipeline stage: save CSV outputs")
@@ -117,7 +124,7 @@ def run_historical_feature_flow(config: FeatureConfig) -> dict[str, object]:
 
     return {
         "source_rows": len(source_frame),
-        "prepared_rows": len(sales),
+        "prepared_rows": len(commodity_sales),
         "tables": tables,
         "csv_outputs": csv_outputs,
     }
