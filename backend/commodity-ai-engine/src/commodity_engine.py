@@ -3,6 +3,7 @@ Commodity AI Engine - Demand Leakage & Capture Opportunity Detection
 INIBSA Smart Demand Signals Platform
 """
 
+import argparse
 import importlib.util
 import json
 import logging
@@ -14,9 +15,14 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
-import lightgbm as lgb
 from sklearn.cluster import KMeans
+from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import StandardScaler
+
+try:
+    import lightgbm as lgb
+except ImportError:  # pragma: no cover - fallback is validated at runtime
+    lgb = None
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -298,59 +304,648 @@ class DemandForecaster:
     LightGBM-based demand forecasting for commodity products.
     Predicts expected monthly consumption.
     """
-    
+
+    _client_sheet = "clients"
+    _product_sheet = "products"
+    _client_product_sheet = "client_product_features"
+    _required_feature_files: Tuple[str, ...] = (
+        "client_product_features.parquet",
+        "product_features.parquet",
+        "client_features.parquet",
+    )
+    _cluster_file_name = "cluster_assignments.parquet"
+    _target_candidates: Tuple[str, ...] = (
+        "target_30d_sales",
+        "next_30d_sales",
+        "future_30d_sales",
+        "expected_30d_sales",
+        "rolling_sales_30d",
+    )
+    _time_columns: Tuple[str, ...] = (
+        "snapshot_date",
+        "feature_date",
+        "as_of_date",
+        "forecast_date",
+        "date",
+        "month",
+    )
+    _customer_id_candidates: Tuple[str, ...] = (
+        "customer_id",
+        "client_id",
+    )
+    _product_id_candidates: Tuple[str, ...] = (
+        "product_id",
+        "product_family",
+        "family",
+    )
+    _priority_client_product_columns: Tuple[str, ...] = (
+        "rolling_sales_30d",
+        "sales_growth_30d",
+        "days_since_last_product_order",
+        "client_product_frequency",
+        "client_product_avg_ticket",
+        "client_product_return_rate",
+        "campaign_lift_product",
+        "client_product_total_revenue",
+        "client_product_total_orders",
+    )
+    _priority_product_columns: Tuple[str, ...] = (
+        "product_growth_30d",
+        "product_frequency",
+        "product_return_rate",
+    )
+    _priority_client_columns: Tuple[str, ...] = (
+        "customer_frequency",
+        "campaign_lift",
+    )
+
     def __init__(self, model_params: Optional[Dict] = None):
         self.model = None
-        self.feature_names = None
+        self.model_backend = "lightgbm" if lgb is not None else "sklearn"
+        self.feature_names: List[str] = []
+        self.feature_dtypes: Dict[str, str] = {}
+        self.categorical_levels: Dict[str, List[str]] = {}
+        self.numeric_fill_values: Dict[str, float] = {}
+        self.validation_rmse_: Optional[float] = None
+        self.validation_mae_: Optional[float] = None
+        self.base_confidence_: float = 0.5
+        self.train_feature_means_: Optional[pd.Series] = None
+        self.train_feature_stds_: Optional[pd.Series] = None
+        self.training_order_: Optional[pd.Series] = None
+        self.target_column: Optional[str] = None
+        self.product_key_column: Optional[str] = None
+        self.customer_key_column: str = "customer_id"
         self.model_params = model_params or {
-            'learning_rate': 0.05,
-            'num_leaves': 31,
-            'max_depth': 5,
-            'objective': 'regression',
-            'metric': 'rmse'
+            "learning_rate": 0.05,
+            "num_leaves": 31,
+            "max_depth": 5,
+            "objective": "regression",
+            "metric": "rmse",
+            "verbosity": -1,
+            "seed": 42,
         }
-        
-    def prepare_features(self, sales_df: pd.DataFrame, clustering_results: pd.DataFrame,
-                        clients_df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
-        """
-        Prepare forecasting features.
-        
-        Features include:
-        - Rolling statistics (7d, 30d volume and frequency)
-        - Seasonality and trend
-        - Customer cluster
-        - Product family
-        - Customer metadata (size, tier)
-        
-        Returns:
-            X: Features DataFrame
-            y: Target (expected consumption) Series
-        """
-        # TODO: Implement feature engineering for forecasting
-        # Rolling 7d, 30d averages
-        # Seasonality extraction
-        # Trend calculation
-        pass
-    
-    def train(self, X_train: pd.DataFrame, y_train: pd.Series):
-        """Train LightGBM model"""
-        self.feature_names = X_train.columns.tolist()
-        train_data = lgb.Dataset(X_train, label=y_train, feature_name=self.feature_names)
-        self.model = lgb.train(self.model_params, train_data, num_boost_round=100)
-        logger.info("Demand forecaster trained")
-        
+
+    def load_inputs(self, features_dir: Path, commodity_output_dir: Path) -> pd.DataFrame:
+        """Load and merge feature tables with cluster assignments."""
+        features_dir = Path(features_dir)
+        commodity_output_dir = Path(commodity_output_dir)
+        if not features_dir.exists():
+            raise FileNotFoundError(f"Features directory not found: {features_dir}")
+        if not commodity_output_dir.exists():
+            raise FileNotFoundError(
+                f"Commodity output directory not found: {commodity_output_dir}"
+            )
+
+        schema_contracts = self._load_schema_contracts()
+        input_paths = {
+            "client_product": features_dir / "client_product_features.parquet",
+            "product": features_dir / "product_features.parquet",
+            "client": features_dir / "client_features.parquet",
+            "cluster": commodity_output_dir / self._cluster_file_name,
+        }
+        missing_files = [
+            str(path) for path in input_paths.values() if not path.exists()
+        ]
+        if missing_files:
+            raise FileNotFoundError(
+                "Missing required forecast inputs: " + ", ".join(missing_files)
+            )
+
+        logger.info("Loading forecast inputs from %s", features_dir)
+        client_product_df = self._canonicalize_client_product_df(
+            pd.read_parquet(input_paths["client_product"])
+        )
+        product_df = self._canonicalize_product_df(pd.read_parquet(input_paths["product"]))
+        client_df = self._canonicalize_client_df(pd.read_parquet(input_paths["client"]))
+        cluster_df = self._canonicalize_cluster_df(pd.read_parquet(input_paths["cluster"]))
+
+        self._validate_input_table(
+            client_product_df,
+            schema_contracts[self._client_product_sheet],
+            "client_product_features.parquet",
+            self._priority_client_product_columns,
+            ("customer_id", self._resolved_product_key(client_product_df)),
+        )
+        self._validate_input_table(
+            product_df,
+            schema_contracts[self._product_sheet],
+            "product_features.parquet",
+            self._priority_product_columns,
+            (self._resolved_product_key(product_df),),
+        )
+        self._validate_input_table(
+            client_df,
+            schema_contracts[self._client_sheet],
+            "client_features.parquet",
+            self._priority_client_columns,
+            ("customer_id",),
+        )
+        self._validate_cluster_assignments(cluster_df)
+
+        merged = client_product_df.merge(
+            client_df,
+            how="left",
+            on="customer_id",
+            suffixes=("", "_client"),
+            validate="many_to_one",
+        )
+        product_key = self._resolved_product_key(client_product_df)
+        merged = merged.merge(
+            product_df,
+            how="left",
+            on=product_key,
+            suffixes=("", "_product"),
+            validate="many_to_one",
+        )
+        merged = merged.merge(
+            cluster_df[["customer_id", "cluster_id"]],
+            how="left",
+            on="customer_id",
+            validate="many_to_one",
+        )
+
+        self.product_key_column = product_key
+        self.validate_schema(merged)
+        logger.info("Merged forecast frame with shape %s", merged.shape)
+        return merged
+
+    def validate_schema(self, df: pd.DataFrame) -> None:
+        """Validate merged forecast schema before training."""
+        if df.empty:
+            raise ValueError("Forecast input DataFrame is empty")
+
+        required_columns = {
+            "customer_id",
+            "cluster_id",
+            self._resolved_product_key(df),
+        }
+        for column_group in (
+            self._priority_client_product_columns,
+            self._priority_product_columns,
+            self._priority_client_columns,
+        ):
+            required_columns.update(column_group)
+
+        missing_columns = sorted(column for column in required_columns if column not in df.columns)
+        if missing_columns:
+            raise ValueError(
+                "Merged forecast frame is missing required columns: "
+                + ", ".join(missing_columns)
+            )
+
+        for column in self._target_candidates:
+            if column in df.columns:
+                self.target_column = column
+                break
+        if self.target_column is None:
+            raise ValueError(
+                "Forecast target column not found. Expected one of: "
+                + ", ".join(self._target_candidates)
+            )
+        logger.info("Using %s as forecast target column", self.target_column)
+
+    def build_training_frame(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
+        """Prepare the model feature matrix and supervised target."""
+        self.validate_schema(df)
+
+        target = pd.to_numeric(df[self.target_column], errors="coerce")
+        if target.isna().all():
+            raise ValueError(f"Target column {self.target_column} contains only NaN values")
+
+        excluded_columns = {
+            "customer_id",
+            "cluster_id",
+            self.target_column,
+            "predicted_30d_sales",
+            "forecast_confidence",
+        }
+        product_key = self._resolved_product_key(df)
+        if product_key == "product_id" and "product_family" in df.columns:
+            excluded_columns.discard("product_family")
+        if product_key == "product_family":
+            excluded_columns.discard("product_family")
+
+        feature_columns = [
+            column
+            for column in df.columns
+            if column not in excluded_columns and not column.endswith("_id")
+        ]
+        feature_columns.append("cluster_id")
+        feature_columns = list(dict.fromkeys(feature_columns))
+
+        missing_for_training = [
+            column for column in feature_columns if column not in df.columns
+        ]
+        if missing_for_training:
+            raise ValueError(
+                "Missing expected training columns: " + ", ".join(missing_for_training)
+            )
+
+        model_df = df.loc[:, feature_columns].copy()
+        valid_mask = target.notna()
+        model_df = model_df.loc[valid_mask].reset_index(drop=True)
+        target = target.loc[valid_mask].clip(lower=0).reset_index(drop=True)
+
+        self.training_order_ = self._build_time_order(model_df)
+        X = self._prepare_model_frame(model_df, fit=True)
+        self.feature_names = X.columns.tolist()
+        logger.info("Built training matrix with shape %s", X.shape)
+        return X, target
+
+    def train(self, X: pd.DataFrame, y: pd.Series) -> None:
+        """Train the demand forecasting model using a time-aware split."""
+        if X.empty or y.empty:
+            raise ValueError("Cannot train forecast model on empty data")
+
+        if self.training_order_ is not None and len(self.training_order_) == len(X):
+            order = self.training_order_
+        else:
+            order = self._build_time_order(X)
+        train_idx, val_idx = self._time_aware_split_indices(order, len(X))
+
+        X_train = X.iloc[train_idx].reset_index(drop=True)
+        y_train = y.iloc[train_idx].reset_index(drop=True)
+        X_val = X.iloc[val_idx].reset_index(drop=True)
+        y_val = y.iloc[val_idx].reset_index(drop=True)
+
+        self.train_feature_means_ = X_train.mean()
+        self.train_feature_stds_ = X_train.std(ddof=0).replace(0, 1).fillna(1)
+
+        if self.model_backend == "lightgbm":
+            train_data = lgb.Dataset(X_train, label=y_train, feature_name=self.feature_names)
+            valid_sets = [train_data]
+            valid_names = ["train"]
+            callbacks = []
+            if not X_val.empty:
+                valid_data = lgb.Dataset(
+                    X_val,
+                    label=y_val,
+                    feature_name=self.feature_names,
+                    reference=train_data,
+                )
+                valid_sets.append(valid_data)
+                valid_names.append("valid")
+                callbacks.append(lgb.early_stopping(20, verbose=False))
+
+            self.model = lgb.train(
+                self.model_params,
+                train_data,
+                num_boost_round=200,
+                valid_sets=valid_sets,
+                valid_names=valid_names,
+                callbacks=callbacks,
+            )
+        else:
+            fallback_params = {
+                "n_estimators": 300,
+                "max_depth": 8,
+                "min_samples_leaf": 2,
+                "random_state": 42,
+                "n_jobs": -1,
+            }
+            self.model = RandomForestRegressor(**fallback_params)
+            self.model.fit(X_train, y_train)
+
+        eval_features = X_val if not X_val.empty else X_train
+        eval_target = y_val if not y_val.empty else y_train
+        eval_pred = np.clip(self.predict(eval_features), a_min=0, a_max=None)
+        residuals = eval_target.to_numpy(dtype=float) - eval_pred
+        self.validation_rmse_ = float(np.sqrt(np.mean(np.square(residuals))))
+        self.validation_mae_ = float(np.mean(np.abs(residuals)))
+        denominator = float(np.mean(np.abs(eval_target.to_numpy(dtype=float)))) + 1e-6
+        relative_error = min(self.validation_mae_ / denominator, 1.0)
+        self.base_confidence_ = float(np.clip(1.0 - relative_error, 0.05, 0.95))
+        logger.info(
+            "Demand forecaster trained using %s backend; validation RMSE=%.4f, base confidence=%.3f",
+            self.model_backend,
+            self.validation_rmse_,
+            self.base_confidence_,
+        )
+
     def predict(self, X: pd.DataFrame) -> np.ndarray:
-        """Predict expected consumption"""
+        """Predict expected consumption."""
         if self.model is None:
             raise ValueError("Model not trained yet")
-        return self.model.predict(X)
-    
+        transformed = self._prepare_model_frame(X, fit=False)
+        predictions = self.model.predict(transformed)
+        return np.clip(np.asarray(predictions, dtype=float), a_min=0, a_max=None)
+
+    def estimate_confidence(self, X: pd.DataFrame, y_pred: np.ndarray) -> np.ndarray:
+        """Estimate per-row forecast confidence in the [0, 1] range."""
+        if self.train_feature_means_ is None or self.train_feature_stds_ is None:
+            raise ValueError("Forecast model must be trained before estimating confidence")
+
+        transformed = self._prepare_model_frame(X, fit=False)
+        aligned_means = self.train_feature_means_.reindex(transformed.columns).fillna(0)
+        aligned_stds = self.train_feature_stds_.reindex(transformed.columns).fillna(1)
+        z_scores = ((transformed - aligned_means) / aligned_stds).abs().replace([np.inf, -np.inf], 0)
+        drift_penalty = np.tanh(z_scores.mean(axis=1) / 3.0)
+
+        scale = (
+            self.validation_rmse_
+            if self.validation_rmse_ is not None and self.validation_rmse_ > 0
+            else max(float(np.nanmean(np.abs(y_pred))), 1.0)
+        )
+        uncertainty = np.clip(np.abs(y_pred) / (np.abs(y_pred) + scale), 0, 1)
+        confidence = self.base_confidence_ * (1 - 0.5 * drift_penalty) * (0.6 + 0.4 * uncertainty)
+        confidence = np.nan_to_num(confidence.to_numpy(dtype=float), nan=self.base_confidence_)
+        return np.clip(confidence, 0, 1)
+
+    def save_outputs(
+        self,
+        output_dir: Path,
+        base_df: pd.DataFrame,
+        y_pred: np.ndarray,
+        confidence: np.ndarray,
+    ) -> None:
+        """Persist the consumption forecast parquet output."""
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        product_key = self._resolved_product_key(base_df)
+        export_df = pd.DataFrame(
+            {
+                "customer_id": base_df["customer_id"].astype("string"),
+                product_key: base_df[product_key].astype("string"),
+                "predicted_30d_sales": np.clip(np.asarray(y_pred, dtype=float), 0, None),
+                "forecast_confidence": np.clip(np.asarray(confidence, dtype=float), 0, 1),
+                "forecast_date": self._build_forecast_dates(base_df),
+            }
+        )
+
+        if export_df.isna().any().any():
+            missing_columns = export_df.columns[export_df.isna().any()].tolist()
+            raise ValueError(
+                "Forecast output contains NaN values in columns: " + ", ".join(missing_columns)
+            )
+
+        output_path = output_dir / "consumption_forecast.parquet"
+        export_df.to_parquet(
+            output_path,
+            index=False,
+            compression="snappy",
+            engine=CommodityCustomerCluster._parquet_engine(),
+        )
+        logger.info("Saved consumption forecast to %s", output_path)
+
+    def prepare_features(
+        self,
+        sales_df: pd.DataFrame,
+        clustering_results: Optional[pd.DataFrame] = None,
+        clients_df: Optional[pd.DataFrame] = None,
+    ) -> Tuple[pd.DataFrame, pd.Series]:
+        """
+        Backward-compatible wrapper around build_training_frame.
+
+        This component now expects a merged feature frame instead of raw sales tables.
+        """
+        if isinstance(sales_df, pd.DataFrame) and "rolling_sales_30d" in sales_df.columns:
+            return self.build_training_frame(sales_df)
+        raise ValueError(
+            "DemandForecaster.prepare_features now expects the merged feature frame returned "
+            "by load_inputs(). Raw sales DataFrames are not supported in this component."
+        )
+
     def get_feature_importance(self) -> Dict[str, float]:
-        """Get feature importance from model"""
+        """Get feature importance from the active forecasting backend."""
         if self.model is None:
             return {}
-        importance = self.model.feature_importance()
-        return {name: imp for name, imp in zip(self.feature_names, importance)}
+        if self.model_backend == "lightgbm":
+            importance = self.model.feature_importance()
+        else:
+            importance = getattr(self.model, "feature_importances_", np.zeros(len(self.feature_names)))
+        return {name: float(imp) for name, imp in zip(self.feature_names, importance)}
+
+    @staticmethod
+    def _schema_path() -> Path:
+        return Path(__file__).resolve().parents[2] / "data_processing" / "inibsa_feature_tables.xlsx"
+
+    def _load_schema_contracts(self) -> Dict[str, List[str]]:
+        schema_path = self._schema_path()
+        if not schema_path.exists():
+            raise FileNotFoundError(f"Schema file not found: {schema_path}")
+
+        try:
+            workbook = pd.ExcelFile(schema_path)
+        except ImportError as exc:
+            raise ImportError(
+                "Reading inibsa_feature_tables.xlsx requires 'openpyxl' to be installed"
+            ) from exc
+
+        contracts = {}
+        for sheet_name in (
+            self._client_sheet,
+            self._product_sheet,
+            self._client_product_sheet,
+        ):
+            if sheet_name not in workbook.sheet_names:
+                raise ValueError(f"Sheet '{sheet_name}' not found in schema workbook")
+            sheet_df = pd.read_excel(schema_path, sheet_name=sheet_name)
+            if "Column" not in sheet_df.columns:
+                raise ValueError(f"Schema sheet '{sheet_name}' must include a 'Column' header")
+            contracts[sheet_name] = (
+                sheet_df["Column"].dropna().astype(str).str.strip().tolist()
+            )
+        return contracts
+
+    def _validate_input_table(
+        self,
+        df: pd.DataFrame,
+        schema_columns: List[str],
+        file_name: str,
+        priority_columns: Iterable[str],
+        identifier_columns: Iterable[str],
+    ) -> None:
+        if df.empty:
+            raise ValueError(f"{file_name} is empty")
+
+        required_columns = self._normalize_expected_columns(schema_columns)
+        required_columns.update(priority_columns)
+        required_columns.update(identifier_columns)
+        missing_columns = sorted(column for column in required_columns if column not in df.columns)
+        if missing_columns:
+            raise ValueError(
+                f"{file_name} is missing required columns from Excel contract: "
+                + ", ".join(missing_columns)
+            )
+        logger.info("Validated %s against Excel schema", file_name)
+
+    def _validate_cluster_assignments(self, df: pd.DataFrame) -> None:
+        required_columns = {"customer_id", "cluster_id"}
+        missing_columns = sorted(required_columns - set(df.columns))
+        if missing_columns:
+            raise ValueError(
+                "cluster_assignments.parquet is missing required columns: "
+                + ", ".join(missing_columns)
+            )
+        if df["cluster_id"].isna().any():
+            raise ValueError("cluster_assignments.parquet contains NaN cluster_id values")
+
+    def _canonicalize_client_product_df(self, df: pd.DataFrame) -> pd.DataFrame:
+        renamed = df.copy()
+        customer_column = self._find_first_column(renamed.columns, self._customer_id_candidates)
+        if customer_column is None:
+            raise ValueError("client_product_features.parquet must include client_id or customer_id")
+        renamed = renamed.rename(columns={customer_column: "customer_id"})
+
+        if "family" in renamed.columns and "product_family" not in renamed.columns:
+            renamed = renamed.rename(columns={"family": "product_family"})
+        if "client_product_total_orders" not in renamed.columns:
+            total_orders_candidates = (
+                "client_product_total_units",
+                "client_product_orders",
+                "client_product_total_transactions",
+            )
+            fallback = self._find_first_column(renamed.columns, total_orders_candidates)
+            if fallback is not None:
+                renamed = renamed.rename(columns={fallback: "client_product_total_orders"})
+        return renamed
+
+    def _canonicalize_product_df(self, df: pd.DataFrame) -> pd.DataFrame:
+        renamed = df.copy()
+        if "family" in renamed.columns and "product_family" not in renamed.columns:
+            renamed = renamed.rename(columns={"family": "product_family"})
+        return renamed
+
+    def _canonicalize_client_df(self, df: pd.DataFrame) -> pd.DataFrame:
+        renamed = df.copy()
+        customer_column = self._find_first_column(renamed.columns, self._customer_id_candidates)
+        if customer_column is None:
+            raise ValueError("client_features.parquet must include client_id or customer_id")
+        return renamed.rename(columns={customer_column: "customer_id"})
+
+    def _canonicalize_cluster_df(self, df: pd.DataFrame) -> pd.DataFrame:
+        renamed = df.copy()
+        customer_column = self._find_first_column(renamed.columns, self._customer_id_candidates)
+        if customer_column is None:
+            raise ValueError("cluster_assignments.parquet must include client_id or customer_id")
+        return renamed.rename(columns={customer_column: "customer_id"})
+
+    @staticmethod
+    def _normalize_expected_columns(columns: Iterable[str]) -> set[str]:
+        normalized = set()
+        for column in columns:
+            if column == "client_id":
+                normalized.add("customer_id")
+            elif column == "family":
+                normalized.add("product_family")
+            else:
+                normalized.add(column)
+        return normalized
+
+    @staticmethod
+    def _find_first_column(columns: Iterable[str], candidates: Iterable[str]) -> Optional[str]:
+        column_set = set(columns)
+        for candidate in candidates:
+            if candidate in column_set:
+                return candidate
+        return None
+
+    def _resolved_product_key(self, df: pd.DataFrame) -> str:
+        product_key = self._find_first_column(df.columns, self._product_id_candidates)
+        if product_key is None:
+            raise ValueError("Forecast inputs must include product_id or product_family/family")
+        return product_key
+
+    def _prepare_model_frame(self, df: pd.DataFrame, fit: bool) -> pd.DataFrame:
+        frame = df.copy()
+        transformed_columns = {}
+
+        for column in frame.columns:
+            if fit:
+                inferred_numeric = pd.to_numeric(frame[column], errors="coerce")
+                numeric_ratio = inferred_numeric.notna().mean()
+                if numeric_ratio >= 0.8:
+                    fill_value = inferred_numeric.median()
+                    if pd.isna(fill_value):
+                        fill_value = 0.0
+                    self.feature_dtypes[column] = "numeric"
+                    self.numeric_fill_values[column] = float(fill_value)
+                    transformed_columns[column] = inferred_numeric.fillna(fill_value).astype(float)
+                else:
+                    values = frame[column].astype("string").fillna("__missing__")
+                    categories = pd.Index(values.unique()).astype(str).tolist()
+                    self.feature_dtypes[column] = "categorical"
+                    self.categorical_levels[column] = categories
+                    codes = pd.Categorical(values, categories=categories).codes.astype(float)
+                    transformed_columns[column] = pd.Series(codes, index=frame.index)
+            else:
+                dtype = self.feature_dtypes.get(column)
+                if dtype == "numeric":
+                    numeric_series = pd.to_numeric(frame[column], errors="coerce")
+                    fill_value = self.numeric_fill_values.get(column, 0.0)
+                    transformed_columns[column] = numeric_series.fillna(fill_value).astype(float)
+                elif dtype == "categorical":
+                    categories = self.categorical_levels.get(column, [])
+                    values = frame[column].astype("string").fillna("__missing__")
+                    codes = pd.Categorical(values, categories=categories).codes.astype(float)
+                    transformed_columns[column] = pd.Series(codes, index=frame.index)
+                else:
+                    transformed_columns[column] = pd.Series(0.0, index=frame.index)
+
+        transformed = pd.DataFrame(transformed_columns, index=frame.index)
+        transformed = transformed.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+        if not fit:
+            for missing_column in self.feature_names:
+                if missing_column not in transformed.columns:
+                    transformed[missing_column] = 0.0
+            transformed = transformed.loc[:, self.feature_names]
+        return transformed
+
+    def _build_time_order(self, X: pd.DataFrame) -> pd.Series:
+        for column in self._time_columns:
+            if column not in X.columns:
+                continue
+            series = X[column]
+            if column == "month":
+                parsed = pd.to_numeric(series, errors="coerce")
+            else:
+                parsed = pd.to_datetime(series, errors="coerce")
+                if parsed.notna().sum() > 0:
+                    logger.info("Using %s for time-aware forecast split", column)
+                    numeric_order = parsed.map(
+                        lambda value: value.value if pd.notna(value) else np.nan
+                    )
+                    numeric_order = numeric_order.fillna(numeric_order.median()).fillna(0)
+                    return pd.Series(numeric_order, index=X.index)
+            if parsed.notna().sum() > 0:
+                logger.info("Using %s for time-aware forecast split", column)
+                return pd.Series(parsed, index=X.index)
+
+        if "days_since_last_product_order" in X.columns:
+            fallback = pd.to_numeric(X["days_since_last_product_order"], errors="coerce").fillna(0)
+            logger.info(
+                "No explicit timestamp found; using days_since_last_product_order as recency proxy"
+            )
+            return fallback * -1
+
+        logger.warning("No time column found; using row order for deterministic split")
+        return pd.Series(np.arange(len(X)), index=X.index)
+
+    @staticmethod
+    def _time_aware_split_indices(order: pd.Series, total_rows: int) -> Tuple[np.ndarray, np.ndarray]:
+        if total_rows < 2:
+            single_index = np.arange(total_rows)
+            return single_index, single_index
+
+        ordered_index = order.sort_values(kind="mergesort").index.to_numpy()
+        split_point = max(int(total_rows * 0.8), 1)
+        split_point = min(split_point, total_rows - 1)
+        train_idx = ordered_index[:split_point]
+        val_idx = ordered_index[split_point:]
+        return train_idx, val_idx
+
+    def _build_forecast_dates(self, base_df: pd.DataFrame) -> pd.Series:
+        for column in self._time_columns:
+            if column not in base_df.columns:
+                continue
+            parsed = pd.to_datetime(base_df[column], errors="coerce")
+            if parsed.notna().sum() == 0:
+                continue
+            return (parsed + pd.Timedelta(days=30)).dt.date.astype("string")
+
+        fallback_date = pd.Timestamp.utcnow().date().isoformat()
+        return pd.Series([fallback_date] * len(base_df), index=base_df.index, dtype="string")
 
 
 class DemandLeakageDetector:
@@ -612,7 +1207,39 @@ class CommoditySignalGenerator:
         logger.info(f"Exported {len(signals)} signals to {output_path}")
 
 
-# Example usage
+def run_consumption_forecast(mode: str, project_root: Optional[Path] = None) -> Path:
+    """Run the consumption forecast component for a given mode."""
+    project_root = (
+        Path(project_root).resolve()
+        if project_root is not None
+        else Path(__file__).resolve().parents[3]
+    )
+    features_dir = project_root / "backend" / "processed_data" / mode / "features"
+    commodity_output_dir = project_root / "backend" / "commodity-ai-engine" / "output" / mode
+
+    forecaster = DemandForecaster()
+    merged_df = forecaster.load_inputs(features_dir, commodity_output_dir)
+    X, y = forecaster.build_training_frame(merged_df)
+    forecaster.train(X, y)
+
+    prediction_frame = merged_df.reset_index(drop=True)
+    y_pred = forecaster.predict(prediction_frame.loc[:, forecaster.feature_names])
+    confidence = forecaster.estimate_confidence(
+        prediction_frame.loc[:, forecaster.feature_names],
+        y_pred,
+    )
+    forecaster.save_outputs(commodity_output_dir, prediction_frame, y_pred, confidence)
+    return commodity_output_dir / "consumption_forecast.parquet"
+
+
 if __name__ == "__main__":
-    # TODO: Load data and run pipeline
-    pass
+    parser = argparse.ArgumentParser(description="Run the commodity consumption forecast")
+    parser.add_argument(
+        "--mode",
+        default="historical",
+        choices=("historical", "daily"),
+        help="Input/output mode for the forecast pipeline",
+    )
+    args = parser.parse_args()
+    output_path = run_consumption_forecast(args.mode)
+    logger.info("Consumption forecast completed: %s", output_path)
