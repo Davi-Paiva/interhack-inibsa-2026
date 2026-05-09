@@ -177,7 +177,7 @@ class CommodityCustomerCluster:
         profiles_source = self._coerce_and_fill(raw_df.loc[:, self._cluster_feature_columns])
         profiles_source["cluster_id"] = labels
 
-        means = profiles_source.groupby("cluster_id")[self._cluster_feature_columns].mean()
+        means = profiles_source.groupby("cluster_id")[list(self._cluster_feature_columns)].mean()
         counts = profiles_source.groupby("cluster_id").size().rename("count")
         profiles = means.join(counts).reset_index()
 
