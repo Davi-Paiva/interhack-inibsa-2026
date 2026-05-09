@@ -97,7 +97,7 @@ def main() -> None:
 
     if not _required_paths_exist():
         paths = feature_file_paths(config=FeatureConfig(), mode="historical")
-        st.warning("Historical feature parquet files were not found.")
+        st.warning("Historical feature CSV files were not found.")
         st.code("\n".join(str(path) for path in paths.values()))
         return
 

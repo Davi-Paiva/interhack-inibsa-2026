@@ -8,22 +8,31 @@ import pandas as pd
 
 try:
     from .config import FeatureConfig, RunMode
-    from .metrics.metrics import build_feature_metrics_bundle, save_feature_metrics_bundle
-    from .utils import ensure_directory, read_parquet_frame, write_parquet_frame
+    from .utils import ensure_directory, read_csv_frame, write_csv_frame
 except (ImportError, ValueError):
     from config import FeatureConfig, RunMode
-    from metrics.metrics import build_feature_metrics_bundle, save_feature_metrics_bundle
-    from utils import ensure_directory, read_parquet_frame, write_parquet_frame
+    from utils import ensure_directory, read_csv_frame, write_csv_frame
 
 
 logger = logging.getLogger(__name__)
 
 COMMODITY_BLOCK_NAME = "Commodities"
-SOURCE_DATASET_CANDIDATES = ("sales_enriched.parquet", "sales_clean.parquet")
+SOURCE_DATASET_CANDIDATES = ("sales_enriched.csv",)
 SOURCE_COLUMN_ALIASES = {
     "invoice_id": "invoice_number",
     "date": "sale_date",
     "sales_value": "amount",
+}
+CLIENT_REFERENCE_COLUMNS = {
+    "Id. Cliente": "client_id",
+    "Codigo Postal": "postal_code",
+    "Provincia": "province",
+}
+PRODUCT_REFERENCE_COLUMNS = {
+    "Id.Prod": "product_id",
+    "Bloque analítico": "analytic_block",
+    "Categoria": "category",
+    "Familia": "family",
 }
 REQUIRED_COLUMNS = {
     "invoice_number",
@@ -90,41 +99,16 @@ FEATURE_TABLE_SCHEMAS = {
     "client_product_features": CLIENT_PRODUCT_FEATURE_COLUMNS,
 }
 FEATURE_OUTPUT_FILES = {
-    "client_features": "client_features.parquet",
-    "product_features": "product_features.parquet",
-    "client_product_features": "client_product_features.parquet",
-}
-FEATURE_COMPATIBILITY_OUTPUT_FILES = {
-    "client_features": "clients.parquet",
-    "product_features": "products.parquet",
-}
-TEMPORARY_REMOVED_COLUMNS = {
-    "client_features": [
-        "first_order_date",
-        "last_order_date",
-        "return_orders_30d",
-        "orders_30d",
-        "daily_revenue_mean_30d",
-        "daily_revenue_std_30d",
-    ],
-    "product_features": [
-        "product_total_orders",
-        "first_order_date",
-        "last_order_date",
-        "current_sales_30d",
-        "previous_sales_30d",
-    ],
-    "client_product_features": [
-        "first_order_date",
-        "last_order_date",
-        "current_sales_30d",
-        "previous_sales_30d",
-    ],
+    "client_features": "clients.csv",
+    "product_features": "products.csv",
+    "client_product_features": "client_product_features.csv",
 }
 
 
 def _safe_ratio(numerator: pd.Series, denominator: pd.Series) -> pd.Series:
-    return numerator.div(denominator.replace(0, pd.NA)).fillna(0.0)
+    numeric_numerator = pd.to_numeric(numerator, errors="coerce")
+    numeric_denominator = pd.to_numeric(denominator, errors="coerce").replace(0, np.nan)
+    return numeric_numerator.div(numeric_denominator).replace([np.inf, -np.inf], np.nan).fillna(0.0)
 
 
 def _coerce_numeric(series: pd.Series) -> pd.Series:
@@ -206,7 +190,7 @@ def _resolve_source_path(mode: RunMode, config: FeatureConfig) -> Path:
         path = input_dir / name
         if path.exists():
             return path
-    raise FileNotFoundError(f"No cleaned parquet source found in {input_dir}. Expected one of: {', '.join(candidates)}")
+    raise FileNotFoundError(f"No cleaned CSV source found in {input_dir}. Expected one of: {', '.join(candidates)}")
 
 
 def resolve_feature_source_path(mode: RunMode, config: FeatureConfig) -> Path:
@@ -219,23 +203,37 @@ def _normalize_source_columns(df: pd.DataFrame) -> pd.DataFrame:
         for source_name, target_name in SOURCE_COLUMN_ALIASES.items()
         if source_name in df.columns and target_name not in df.columns
     }
-    return df.rename(columns=rename_map).copy() if rename_map else df
+    normalized = df.rename(columns=rename_map).copy() if rename_map else df.copy()
+    for column in ("invoice_number", "client_id", "product_id"):
+        if column in normalized.columns:
+            normalized[column] = normalized[column].astype("string").str.strip()
+    return normalized
 
 
 def _merge_reference_context(df: pd.DataFrame, *, mode: RunMode, config: FeatureConfig) -> pd.DataFrame:
     enriched = df.copy()
-    input_dir = config.input_dir_for_mode(mode)
-
     if {"postal_code", "province"} - set(enriched.columns):
-        clients_path = input_dir / "clients_clean.parquet"
+        clients_path = config.raw_data_dir / "clients.csv"
         if clients_path.exists():
-            clients = read_parquet_frame(clients_path)[["client_id", "postal_code", "province"]]
+            clients = (
+                read_csv_frame(clients_path)
+                .rename(columns=CLIENT_REFERENCE_COLUMNS)[["client_id", "postal_code", "province"]]
+                .assign(client_id=lambda frame: frame["client_id"].astype("string").str.strip())
+                .drop_duplicates(subset=["client_id"], keep="last")
+            )
             enriched = enriched.merge(clients, on="client_id", how="left")
 
     if {"analytic_block", "category", "family"} - set(enriched.columns):
-        products_path = input_dir / "products_clean.parquet"
+        products_path = config.raw_data_dir / "products.csv"
         if products_path.exists():
-            products = read_parquet_frame(products_path)[["product_id", "analytic_block", "category", "family"]]
+            products = (
+                read_csv_frame(products_path)
+                .rename(columns=PRODUCT_REFERENCE_COLUMNS)[
+                    ["product_id", "analytic_block", "category", "family"]
+                ]
+                .assign(product_id=lambda frame: frame["product_id"].astype("string").str.strip())
+                .drop_duplicates(subset=["product_id"], keep="last")
+            )
             enriched = enriched.merge(products, on="product_id", how="left")
 
     return enriched
@@ -244,13 +242,13 @@ def _merge_reference_context(df: pd.DataFrame, *, mode: RunMode, config: Feature
 def _validate_source_frame(df: pd.DataFrame) -> None:
     missing_columns = sorted(REQUIRED_COLUMNS - set(df.columns))
     if missing_columns:
-        raise ValueError(f"Feature source parquet is missing required columns: {', '.join(missing_columns)}")
+        raise ValueError(f"Feature source CSV is missing required columns: {', '.join(missing_columns)}")
 
 
 def load_feature_source_frame(mode: RunMode, config: FeatureConfig) -> pd.DataFrame:
     source_path = _resolve_source_path(mode, config)
     logger.info("Loading feature source from %s", source_path)
-    frame = read_parquet_frame(source_path)
+    frame = read_csv_frame(source_path)
     frame = _normalize_source_columns(frame)
     frame = _merge_reference_context(frame, mode=mode, config=config)
     _validate_source_frame(frame)
@@ -564,23 +562,6 @@ def align_feature_tables_to_contract(
     return aligned_frames, removed_columns_by_table
 
 
-def write_removed_feature_log(
-    removed_columns_by_table: dict[str, list[str]],
-    *,
-    mode: RunMode,
-    config: FeatureConfig,
-) -> Path:
-    output_path = config.features_dir_for_mode(mode) / "removed_extra_features.txt"
-    lines = ["Removed extra or temporary features compared with Excel contract:", ""]
-    for table_name, removed_columns in removed_columns_by_table.items():
-        combined = sorted(set(removed_columns + TEMPORARY_REMOVED_COLUMNS.get(table_name, [])))
-        lines.append(f"[{table_name}]")
-        lines.extend(f"- {column}" for column in combined) if combined else lines.append("- none")
-        lines.append("")
-    output_path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
-    return output_path
-
-
 def write_feature_frames(
     frames: dict[str, pd.DataFrame],
     *,
@@ -590,17 +571,10 @@ def write_feature_frames(
     output_dir = ensure_directory(config.features_dir_for_mode(mode))
     outputs: dict[str, Path] = {}
     for dataset_name, file_name in FEATURE_OUTPUT_FILES.items():
-        outputs[dataset_name] = write_parquet_frame(
+        output_key = file_name[:-4] if file_name.endswith(".csv") else dataset_name
+        outputs[output_key] = write_csv_frame(
             frames[dataset_name],
             output_dir / file_name,
-            compression=config.parquet_compression,
-        )
-    for dataset_name, file_name in FEATURE_COMPATIBILITY_OUTPUT_FILES.items():
-        output_key = file_name[:-8] if file_name.endswith(".parquet") else file_name
-        outputs[output_key] = write_parquet_frame(
-            frames[dataset_name],
-            output_dir / file_name,
-            compression=config.parquet_compression,
         )
     return outputs
 
@@ -629,25 +603,8 @@ def run_feature_pipeline(
         "product_features": build_product_features(sales),
         "client_product_features": build_client_product_features(sales),
     }
-    frames, removed_columns_by_table = align_feature_tables_to_contract(frames)
-
+    frames, _ = align_feature_tables_to_contract(frames)
     outputs = write_feature_frames(frames, mode=mode, config=config)
-    outputs["removed_extra_features"] = write_removed_feature_log(
-        removed_columns_by_table,
-        mode=mode,
-        config=config,
-    )
-    outputs.update(
-        save_feature_metrics_bundle(
-            build_feature_metrics_bundle(
-                mode=mode,
-                source_dataset=source_path.name,
-                source_sales=sales,
-                tables=frames,
-            ),
-            config.metrics_dir_for_mode(mode),
-        )
-    )
     logger.info(
         "Feature tables built: clients=%s, products=%s, client_products=%s",
         len(frames["client_features"]),
