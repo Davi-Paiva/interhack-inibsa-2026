@@ -3,3 +3,4 @@ __init__.py
 *.cpython-*.pyc
 .venv
 .DS_Store
+/feature_engineering_plan/*

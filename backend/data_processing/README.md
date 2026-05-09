@@ -34,6 +34,7 @@ data_processing
 - Filters a `Productos Técnicos` sales dataset ready for downstream analytics.
 - Writes processed outputs as parquet and CSV under `backend/processed_data/<mode>/`.
 - Saves lightweight monitoring metrics as JSON, including daily-vs-historical drift checks.
+- Triggers downstream feature engineering after cleaning for historical runs.
 
 ## Run
 
@@ -41,6 +42,7 @@ data_processing
 pip install -r backend/data_processing/requirements.txt
 python3 backend/data_processing/run_cleaning.py --mode historical
 python3 backend/data_processing/run_cleaning.py --mode daily
+python3 backend/feature_engineering/run_features.py --mode historical
 streamlit run backend/data_processing/plots/dashboard.py
 ```
 
@@ -50,5 +52,5 @@ streamlit run backend/data_processing/plots/dashboard.py
 - The cleaning flow now includes logging for load, cleaning, and output summary steps.
 - Validation includes missing ratio, duplicate ratio, invalid date ratio, outlier ratio, and drift monitoring for daily runs when a historical baseline is available.
 - The plots module reads processed parquet files and exposes a minimal Streamlit dashboard for `historical` and `daily` views.
+- Feature engineering now lives in `backend/feature_engineering` and reads cleaned parquet outputs from this module.
 - No modeling is included yet.
-- Future feature engineering should be added in `cleaning.py` where the TODOs are already marked.
