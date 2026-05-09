@@ -1,0 +1,127 @@
+{
+  "model_ready_dir": "C:\\Users\\apool\\Documents\\GitHub\\interhack-inibsa-2026\\backend\\data\\model_ready",
+  "tables": {
+    "client_dimension": {
+      "rows": 11037,
+      "columns": [
+        "client_id",
+        "postal_code",
+        "province",
+        "in_clients_master",
+        "has_sales_history",
+        "has_potential",
+        "client_master_conflict"
+      ]
+    },
+    "product_dimension": {
+      "rows": 25,
+      "columns": [
+        "product_id",
+        "analytical_block",
+        "product_category",
+        "product_family",
+        "product_type"
+      ]
+    },
+    "campaign_dimension": {
+      "rows": 10,
+      "columns": [
+        "campaign",
+        "start_date",
+        "end_date"
+      ]
+    },
+    "client_category_potential": {
+      "rows": 22117,
+      "columns": [
+        "client_id",
+        "product_category",
+        "product_type",
+        "potential_value",
+        "potential_family_count"
+      ]
+    },
+    "sales_transactions": {
+      "rows": 162546,
+      "columns": [
+        "invoice_id",
+        "date",
+        "client_id",
+        "postal_code",
+        "province",
+        "in_clients_master",
+        "client_master_conflict",
+        "product_id",
+        "product_category",
+        "product_family",
+        "product_type",
+        "campaign",
+        "is_campaign_period",
+        "signed_units",
+        "signed_value",
+        "purchase_units",
+        "purchase_value",
+        "campaign_purchase_value",
+        "refund_units",
+        "refund_value",
+        "is_refund",
+        "is_non_purchase_signal"
+      ]
+    },
+    "client_category_daily": {
+      "rows": 107836,
+      "columns": [
+        "client_id",
+        "date",
+        "product_category",
+        "product_type",
+        "postal_code",
+        "province",
+        "in_clients_master",
+        "client_master_conflict",
+        "has_category_potential",
+        "potential_value",
+        "potential_family_count",
+        "invoice_count",
+        "product_count",
+        "purchase_units",
+        "purchase_value",
+        "refund_units",
+        "refund_value",
+        "signed_units",
+        "signed_value",
+        "refund_row_count",
+        "non_purchase_signal_count",
+        "campaign",
+        "is_campaign_period"
+      ]
+    },
+    "client_category_summary": {
+      "rows": 26358,
+      "columns": [
+        "client_id",
+        "product_category",
+        "product_type",
+        "postal_code",
+        "province",
+        "in_clients_master",
+        "client_master_conflict",
+        "has_category_potential",
+        "potential_value",
+        "potential_family_count",
+        "has_observed_sales",
+        "first_observed_date",
+        "last_observed_date",
+        "active_days",
+        "invoice_count",
+        "product_count",
+        "purchase_units_total",
+        "purchase_value_total",
+        "refund_units_total",
+        "refund_value_total",
+        "non_purchase_signal_count",
+        "campaign_purchase_value_total"
+      ]
+    }
+  }
+}

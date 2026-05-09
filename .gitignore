@@ -15,8 +15,8 @@ build/
 *.egg-info/
 
 # Generated data outputs (keep raw inputs tracked)
-backend/data/cleaned/
-backend/data/model_ready/
+
+
 
 # Jupyter
 .ipynb_checkpoints/
