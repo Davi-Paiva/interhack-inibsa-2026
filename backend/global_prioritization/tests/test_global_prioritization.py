@@ -72,7 +72,7 @@ def test_commodity_merge_backfills_capture_score_into_next_purchase(tmp_path: Pa
     assert consolidated[0]["global_priority_band"] == "medium"
 
 
-def test_technical_process_date_uses_pull_forward_rules(tmp_path: Path) -> None:
+def test_technical_process_date_defaults_to_priority_window(tmp_path: Path) -> None:
     service = GlobalPrioritizationService(project_root=tmp_path)
     reference = pd.Timestamp("2026-05-10")
     row = {
@@ -121,10 +121,10 @@ def test_ranking_sorts_by_process_date_then_score(tmp_path: Path) -> None:
             "product_id": "P001",
             "severity_label": "high",
             "priority_label": "high",
-            "global_priority_score": 70.0,
-            "global_priority_band": "high",
-            "process_on_date": pd.Timestamp("2026-05-11"),
-            "process_day_bucket": "tomorrow",
+            "global_priority_score": 55.0,
+            "global_priority_band": "medium",
+            "process_on_date": pd.Timestamp("2026-05-10"),
+            "process_day_bucket": "today",
             "recommended_action": "Later",
             "explanation_ids": [],
             "source_row_keys": [],
@@ -138,10 +138,10 @@ def test_ranking_sorts_by_process_date_then_score(tmp_path: Path) -> None:
             "product_id": "P002",
             "severity_label": "critical",
             "priority_label": "critical",
-            "global_priority_score": 60.0,
-            "global_priority_band": "medium",
-            "process_on_date": pd.Timestamp("2026-05-10"),
-            "process_day_bucket": "today",
+            "global_priority_score": 65.0,
+            "global_priority_band": "critical",
+            "process_on_date": pd.Timestamp("2026-05-12"),
+            "process_day_bucket": "this_week",
             "recommended_action": "Now",
             "explanation_ids": [],
             "source_row_keys": [],
@@ -185,3 +185,77 @@ def test_technical_output_dir_is_mode_specific(tmp_path: Path) -> None:
     assert service.technical_output_dir("daily") == (
         tmp_path / "backend" / "technical_product_engine" / "output" / "daily"
     )
+
+
+def test_technical_candidates_filter_to_urgent_critical_rows(tmp_path: Path) -> None:
+    service = GlobalPrioritizationService(project_root=tmp_path)
+    rows = [
+        {
+            "source_engine": "technical_product_engine",
+            "canonical_variant": "technical.risk_assessment",
+            "source_variants": ["technical.risk_assessment"],
+            "customer_id": "T1",
+            "product_id": "P1",
+            "severity_label": "high",
+            "priority_label": "critical",
+            "global_priority_score": 62.0,
+            "global_priority_band": "critical",
+            "process_on_date": pd.Timestamp("2026-05-10"),
+            "process_day_bucket": "today",
+            "recommended_action": "Now",
+            "explanation_ids": [],
+            "source_row_keys": [],
+        },
+        {
+            "source_engine": "technical_product_engine",
+            "canonical_variant": "technical.risk_assessment",
+            "source_variants": ["technical.risk_assessment"],
+            "customer_id": "T2",
+            "product_id": "P2",
+            "severity_label": "high",
+            "priority_label": "high",
+            "global_priority_score": 51.0,
+            "global_priority_band": "high",
+            "process_on_date": pd.Timestamp("2026-05-11"),
+            "process_day_bucket": "tomorrow",
+            "recommended_action": "Technical",
+            "explanation_ids": [],
+            "source_row_keys": [],
+        },
+        {
+            "source_engine": "technical_product_engine",
+            "canonical_variant": "technical.risk_assessment",
+            "source_variants": ["technical.risk_assessment"],
+            "customer_id": "T3",
+            "product_id": "P3",
+            "severity_label": "medium",
+            "priority_label": "medium",
+            "global_priority_score": 44.0,
+            "global_priority_band": "medium",
+            "process_on_date": pd.Timestamp("2026-05-12"),
+            "process_day_bucket": "this_week",
+            "recommended_action": "Monitor",
+            "explanation_ids": [],
+            "source_row_keys": [],
+        },
+        {
+            "source_engine": "technical_product_engine",
+            "canonical_variant": "technical.risk_assessment",
+            "source_variants": ["technical.risk_assessment"],
+            "customer_id": "T4",
+            "product_id": "P4",
+            "severity_label": "critical",
+            "priority_label": "critical",
+            "global_priority_score": 63.0,
+            "global_priority_band": "critical",
+            "process_on_date": pd.Timestamp("2026-05-20"),
+            "process_day_bucket": "later",
+            "recommended_action": "Later",
+            "explanation_ids": [],
+            "source_row_keys": [],
+        },
+    ]
+
+    selected = service._select_technical_candidates(rows)
+
+    assert [(row["customer_id"], row["product_id"]) for row in selected] == [("T1", "P1")]

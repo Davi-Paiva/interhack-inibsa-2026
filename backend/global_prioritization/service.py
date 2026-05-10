@@ -20,7 +20,11 @@ COMMODITY_VARIANT_PRECEDENCE = {
     "commodity.next_purchase": 0,
     "commodity.capture_opportunity": 1,
     "commodity.demand_leakage": 2,
+    "commodity.churn_risk": 3,
 }
+
+FINAL_QUEUE_LIMIT = 30
+PROMISCUOUS_CLUSTER_ID = 2
 
 
 class GlobalPrioritizationService:
@@ -89,7 +93,7 @@ class GlobalPrioritizationService:
             for row in queue_rows
         ]
         ranked_records = self._rank_queue_rows(queue_rows, reference_date=reference_date)
-        return self._records_to_frame(ranked_records)
+        return self._records_to_frame(ranked_records[:FINAL_QUEUE_LIMIT])
 
     def persist_queue(
         self,
@@ -283,22 +287,33 @@ class GlobalPrioritizationService:
         if leakage_path.exists():
             leakage_df = pd.read_parquet(leakage_path)
             for row in leakage_df.to_dict(orient="records"):
-                if not bool(row.get("is_actionable")):
-                    continue
-                if self._string(row.get("route_to_engine")) != "commodity_ai_engine":
-                    continue
                 risk_level = self._string(row.get("risk_level"))
                 if risk_level in {"", "none"}:
                     continue
-                rows.append(
-                    {
-                        **row,
-                        "canonical_variant": "commodity.demand_leakage",
-                        "severity_label": risk_level,
-                        "priority_label": None,
-                        "recommended_action": "",
-                    }
-                )
+                if bool(row.get("is_actionable")) and self._string(row.get("route_to_engine")) == "commodity_ai_engine":
+                    rows.append(
+                        {
+                            **row,
+                            "canonical_variant": "commodity.demand_leakage",
+                            "severity_label": risk_level,
+                            "priority_label": None,
+                            "recommended_action": "",
+                        }
+                    )
+                    continue
+                if self._is_commodity_churn_candidate(row):
+                    rows.append(
+                        {
+                            **row,
+                            "canonical_variant": "commodity.churn_risk",
+                            "explanation_variant": "commodity.demand_leakage",
+                            "severity_label": risk_level,
+                            "priority_label": None,
+                            "recommended_action": self._commodity_churn_recommendation(
+                                self._string(row.get("routing_reason"))
+                            ),
+                        }
+                    )
 
         capture_path = output_dir / "capture_opportunities.parquet"
         if capture_path.exists():
@@ -350,7 +365,11 @@ class GlobalPrioritizationService:
             canonical = self._merge_commodity_group_rows(ordered)
             source_variants = [self._string(item.get("canonical_variant")) for item in ordered]
             source_row_keys = [
-                self._source_row_key(self._string(item.get("canonical_variant")), customer_id, product_id)
+                self._source_row_key(
+                    self._string(item.get("explanation_variant")) or self._string(item.get("canonical_variant")),
+                    customer_id,
+                    product_id,
+                )
                 for item in ordered
             ]
             explanation_ids = self._collect_explanations(source_row_keys, explanation_map)
@@ -657,6 +676,8 @@ class GlobalPrioritizationService:
                 "overdue": 15.0,
             }.get(process_day_bucket, 0.0)
             return min(100.0, (0.60 * capture_score) + (25.0 * purchase_probability) + timing_bonus)
+        if variant == "commodity.churn_risk":
+            return min(100.0, (self._float(row.get("leakage_score")) * 100.0) + 6.0)
         if variant == "commodity.capture_opportunity":
             return min(100.0, self._float(row.get("capture_score")))
         return min(100.0, self._float(row.get("leakage_score")) * 100.0)
