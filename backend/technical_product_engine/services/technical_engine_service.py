@@ -7,7 +7,7 @@ comprehensive abandonment risk assessments for client-product relationships.
 """
 
 import logging
-from typing import List, Optional
+from typing import Any, List, Optional
 from dataclasses import dataclass, asdict
 
 from ..domain.models import ClientProductContext

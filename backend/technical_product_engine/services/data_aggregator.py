@@ -142,7 +142,10 @@ class DataAggregator:
             List of products in the specified analytic block
         """
         logger.info(f"Filtering products by analytic_block: '{analytic_block}'")
-        filtered = [p for p in self.products if p.analytic_block == analytic_block]
+        filtered = [
+            p for p in self.products
+            if _matches_analytic_block(p.analytic_block, analytic_block)
+        ]
         logger.info(f"Found {len(filtered)} products in '{analytic_block}' block")
         return filtered
     
@@ -221,8 +224,8 @@ class DataAggregator:
         features_to_process = self.client_product_features
         if technical_only:
             technical_product_ids = {
-                p.product_id for p in self.products 
-                if p.analytic_block == analytic_block
+                p.product_id for p in self.products
+                if _matches_analytic_block(p.analytic_block, analytic_block)
             }
             logger.info(f"Filtering for {len(technical_product_ids)} products in '{analytic_block}' block")
             features_to_process = [f for f in features_to_process if f.product_id in technical_product_ids]
@@ -305,3 +308,35 @@ class DataAggregator:
         
         logger.info(f"Computed peer metrics for {len(peer_metrics)} products")
         return peer_metrics
+
+
+def _matches_analytic_block(value: str, target: str) -> bool:
+    value_normalized = _normalize_block(value)
+    target_normalized = _normalize_block(target)
+    if value_normalized == target_normalized:
+        return True
+    if _is_technical_block(target_normalized):
+        return _is_technical_block(value_normalized)
+    if _is_commodity_block(target_normalized):
+        return _is_commodity_block(value_normalized)
+    return False
+
+
+def _normalize_block(value: str) -> str:
+    import unicodedata
+
+    text = str(value or "").strip().lower()
+    folded = "".join(
+        char for char in unicodedata.normalize("NFKD", text) if not unicodedata.combining(char)
+    )
+    return folded.replace("ã©", "e")
+
+
+def _is_technical_block(value: str) -> bool:
+    if "non-technical" in value or "non technical" in value:
+        return False
+    return "technical" in value or "tecn" in value or "cnic" in value
+
+
+def _is_commodity_block(value: str) -> bool:
+    return "commod" in value

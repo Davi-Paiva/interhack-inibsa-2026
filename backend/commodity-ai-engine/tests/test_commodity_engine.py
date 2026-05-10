@@ -394,7 +394,7 @@ def test_clustering_model_artifact_round_trip_preserves_predictions(tmp_path: Pa
 def test_forecast_model_artifact_round_trip_preserves_predictions(tmp_path: Path) -> None:
     rows = []
     for month_index, snapshot_date in enumerate(
-        pd.date_range("2024-01-31", periods=18, freq="M"),
+        pd.date_range("2024-01-31", periods=18, freq="ME"),
         start=1,
     ):
         for customer_index in range(4):
@@ -522,7 +522,7 @@ def test_snapshot_target_uses_future_window_only() -> None:
 def test_forecast_predictions_are_non_negative_and_confidence_is_bounded() -> None:
     rows = []
     for month_index, snapshot_date in enumerate(
-        pd.date_range("2024-01-31", periods=18, freq="M"),
+        pd.date_range("2024-01-31", periods=18, freq="ME"),
         start=1,
     ):
         for customer_index in range(4):
@@ -754,7 +754,7 @@ def test_daily_model_evaluation_loads_historical_forecast_artifact(
 
     rows = []
     for month_index, snapshot_date in enumerate(
-        pd.date_range("2024-01-31", periods=18, freq="M"),
+        pd.date_range("2024-01-31", periods=18, freq="ME"),
         start=1,
     ):
         for customer_index in range(4):
