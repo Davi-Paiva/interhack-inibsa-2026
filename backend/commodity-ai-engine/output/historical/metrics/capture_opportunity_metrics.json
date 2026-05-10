@@ -1,0 +1,48 @@
+{
+  "source_rows": 18734,
+  "scored_rows": 39,
+  "score_distribution": {
+    "min": 19.47065423808801,
+    "mean": 29.36636994782994,
+    "median": 29.128296315198256,
+    "p90": 38.376329529237594,
+    "p99": 43.54633227555244,
+    "max": 43.80406923554345
+  },
+  "priority_band_counts": {
+    "critical": 3,
+    "high": 9,
+    "low": 9,
+    "medium": 18
+  },
+  "actionable_input_rows": 39,
+  "actionable_input_share": 0.002081776449236682,
+  "top_5_gap_share": 0.18248198019241016,
+  "top_10_gap_share": 0.4086406234066103,
+  "top_5_customer_revenue_share": 0.30819001161863474,
+  "top_10_customer_revenue_share": 0.514920481635232,
+  "priority_rank_is_unique": true,
+  "priority_rank_is_monotonic": true,
+  "historical_validation_proxy": {
+    "rows": 976,
+    "missed_rebound_rate": 0.5850409836065574,
+    "leakage_score_ranking": {
+      "base_rate": 0.5850409836065574,
+      "precision_at_1.0%": 0.8888888888888888,
+      "lift_at_1.0%": 1.5193617435298694,
+      "precision_at_5.0%": 0.4791666666666667,
+      "lift_at_5.0%": 0.8190309398715703,
+      "precision_at_10.0%": 0.5360824742268041,
+      "lift_at_10.0%": 0.9163161030566739
+    },
+    "capture_score_ranking": {
+      "base_rate": 0.5850409836065574,
+      "precision_at_1.0%": 0.3333333333333333,
+      "lift_at_1.0%": 0.569760653823701,
+      "precision_at_5.0%": 0.4583333333333333,
+      "lift_at_5.0%": 0.7834208990075889,
+      "precision_at_10.0%": 0.4948453608247423,
+      "lift_at_10.0%": 0.8458302489753913
+    }
+  }
+}

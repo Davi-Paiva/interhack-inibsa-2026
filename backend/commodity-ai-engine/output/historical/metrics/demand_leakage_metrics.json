@@ -1,0 +1,78 @@
+{
+  "rows": 18734,
+  "candidate_count": 74,
+  "candidate_share": 0.00395003736521832,
+  "actionable_count": 39,
+  "actionable_share": 0.002081776449236682,
+  "routed_to_technical_count": 35,
+  "routed_to_technical_share": 0.0018682609159816376,
+  "score_distribution": {
+    "min": 0.0,
+    "mean": 0.006338538461574041,
+    "median": 0.0,
+    "p90": 0.0,
+    "p99": 0.4197647960058273,
+    "max": 0.5371841797424961
+  },
+  "risk_bucket_counts": {
+    "high": 225,
+    "low": 50,
+    "medium": 17,
+    "none": 18442
+  },
+  "cluster_mix": {
+    "1": 37,
+    "2": 2
+  },
+  "historical_validation": {
+    "rows": 664658,
+    "candidate_count": 3144,
+    "candidate_share": 0.004730252250029338,
+    "actionable_count": 1065,
+    "actionable_share": 0.0016023278137026861,
+    "routed_to_technical_count": 2079,
+    "routed_to_technical_share": 0.003127924436326652,
+    "score_distribution": {
+      "min": 0.0,
+      "mean": 0.006300604983789628,
+      "median": 0.0,
+      "p90": 0.0,
+      "p99": 0.41890631764037123,
+      "max": 0.5375624049594798
+    },
+    "risk_bucket_counts": {
+      "high": 7910,
+      "low": 1537,
+      "medium": 780,
+      "none": 654431
+    },
+    "cluster_mix": {
+      "0": 880,
+      "1": 134,
+      "2": 45,
+      "3": 6
+    },
+    "offline_validation": {
+      "rows": 664658,
+      "missed_rebound_rate": 0.004212692843537579,
+      "current_score": {
+        "base_rate": 0.004212692843537579,
+        "precision_at_0_1%": 0.37349397590361444,
+        "lift_at_0_1%": 88.65919965576592,
+        "precision_at_1_0%": 0.08651820643996389,
+        "lift_at_1_0%": 20.53750644856197,
+        "precision_at_5_0%": 0.020943668753009147,
+        "lift_at_5_0%": 4.971563209299126
+      },
+      "proposed_score": {
+        "base_rate": 0.004212692843537579,
+        "precision_at_0_1%": 0.44126506024096385,
+        "lift_at_0_1%": 104.74655443201377,
+        "precision_at_1_0%": 0.21065302437556424,
+        "lift_at_1_0%": 50.00436352693349,
+        "precision_at_5_0%": 0.08425613866153106,
+        "lift_at_5_0%": 20.000541646605683
+      }
+    }
+  }
+}

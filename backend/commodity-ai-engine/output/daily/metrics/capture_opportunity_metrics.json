@@ -1,0 +1,26 @@
+{
+  "source_rows": 18734,
+  "scored_rows": 1105,
+  "score_distribution": {
+    "min": 21.16558409659631,
+    "mean": 35.407515629207936,
+    "median": 34.687899426359856,
+    "p90": 44.31230375067056,
+    "p99": 53.648459438111125,
+    "max": 63.12652245236949
+  },
+  "priority_band_counts": {
+    "critical": 262,
+    "high": 483,
+    "low": 21,
+    "medium": 339
+  },
+  "actionable_input_rows": 1105,
+  "actionable_input_share": 0.05898366606170599,
+  "top_5_gap_share": 0.010138197818297836,
+  "top_10_gap_share": 0.01838709673703453,
+  "top_5_customer_revenue_share": 0.014797473904285747,
+  "top_10_customer_revenue_share": 0.02426414261557243,
+  "priority_rank_is_unique": true,
+  "priority_rank_is_monotonic": true
+}

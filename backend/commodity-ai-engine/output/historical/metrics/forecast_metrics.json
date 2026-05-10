@@ -1,0 +1,17 @@
+{
+  "rmse": 157.30921549067446,
+  "mae": 72.87596029157353,
+  "wmape": 1.649890756196343,
+  "mape_nonzero": 0.713553331678929,
+  "r2": 0.1686337633419125,
+  "baseline_rmse": 502.5898464629673,
+  "baseline_mae": 378.4466577271319,
+  "baseline_wmape": 8.56792335633337,
+  "rmse_improvement_vs_baseline": 345.2806309722928,
+  "wmape_improvement_vs_baseline": 6.918032600137027,
+  "warmup_snapshots": 12,
+  "evaluated_snapshots": 46,
+  "evaluated_rows": 664658,
+  "latest_evaluated_snapshot": "2025-10-31",
+  "passes_baseline": true
+}
