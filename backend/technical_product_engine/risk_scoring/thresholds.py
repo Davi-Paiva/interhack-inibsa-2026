@@ -17,9 +17,9 @@ MEDIUM_RISK_THRESHOLD: float = 0.60
 HIGH_RISK_THRESHOLD: float = 0.80
 
 # Priority score thresholds (business opportunity adjusted)
-LOW_PRIORITY_THRESHOLD: float = 0.40
-MEDIUM_PRIORITY_THRESHOLD: float = 0.70
-HIGH_PRIORITY_THRESHOLD: float = 0.90
+LOW_PRIORITY_THRESHOLD: float = 0.50
+MEDIUM_PRIORITY_THRESHOLD: float = 0.90
+HIGH_PRIORITY_THRESHOLD: float = 1.40
 
 
 def classify_risk_level(score: Optional[float]) -> str:
