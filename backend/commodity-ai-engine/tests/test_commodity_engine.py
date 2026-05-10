@@ -16,9 +16,11 @@ if str(COMMODITY_SRC) not in sys.path:
 
 from commodity_engine import (  # noqa: E402
     CommodityCustomerCluster,
+    CaptureScoringEngine,
     DemandLeakageDetector,
     DemandForecaster,
     build_historical_training_panel,
+    run_capture_scoring,
     run_demand_leakage,
 )
 
@@ -96,6 +98,39 @@ def _build_forecast_output_table() -> pd.DataFrame:
             "predicted_30d_sales": [160.0, 160.0, 160.0, 0.0],
             "forecast_confidence": [0.2, 0.2, 0.2, 0.2],
             "forecast_date": ["2025-04-30"] * 4,
+        }
+    )
+
+
+def _build_leakage_output_table() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "customer_id": ["C000", "C001", "C002", "C003"],
+            "product_id": ["P1", "P1", "P2", "P2"],
+            "cluster_id": [0, 1, 2, 1],
+            "predicted_30d_sales": [140.0, 150.0, 125.0, 120.0],
+            "observed_30d_sales": [60.0, 70.0, 55.0, 0.0],
+            "gap_units": [80.0, 80.0, 70.0, 120.0],
+            "gap_ratio": [0.57, 0.53, 0.56, 1.0],
+            "volatility_penalty": [0.9, 0.8, 0.95, 1.0],
+            "campaign_softener": [1.0, 0.9, 1.0, 1.0],
+            "return_penalty": [1.0, 1.0, 0.96, 1.0],
+            "confidence_factor": [0.6, 0.55, 0.58, 0.57],
+            "leakage_score": [0.30, 0.24, 0.28, 0.45],
+            "risk_level": ["high", "medium", "medium", "high"],
+            "is_actionable": [True, True, True, False],
+            "route_to_engine": [
+                "commodity_ai_engine",
+                "commodity_ai_engine",
+                "commodity_ai_engine",
+                "technical_product_engine",
+            ],
+            "routing_reason": [
+                "commodity_actionable",
+                "commodity_actionable",
+                "commodity_actionable",
+                "zero_baseline",
+            ],
         }
     )
 
@@ -188,6 +223,24 @@ def test_leakage_loader_supports_forecast_and_feature_inputs(tmp_path: Path) -> 
     assert "cluster_id" in merged.columns
 
 
+def test_capture_loader_supports_leakage_and_feature_inputs(tmp_path: Path) -> None:
+    _build_client_table().to_csv(tmp_path / "clients.csv", index=False)
+    _build_product_table().to_csv(tmp_path / "products.csv", index=False)
+    _build_client_product_table().to_csv(tmp_path / "client_product_features.csv", index=False)
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    _build_leakage_output_table().to_parquet(output_dir / "demand_leakage_signals.parquet", index=False)
+    _build_cluster_assignments().iloc[:4].to_parquet(output_dir / "cluster_assignments.parquet", index=False)
+
+    scorer = CaptureScoringEngine()
+    merged = scorer.load_inputs(tmp_path, output_dir)
+
+    assert len(merged) == 4
+    assert "customer_total_revenue" in merged.columns
+    assert "sales_growth_30d" in merged.columns
+    assert "family" in merged.columns or "product_family" in merged.columns
+
+
 def test_leakage_schema_validation_fails_when_required_columns_are_missing() -> None:
     detector = DemandLeakageDetector()
     invalid = pd.DataFrame(
@@ -201,6 +254,21 @@ def test_leakage_schema_validation_fails_when_required_columns_are_missing() -> 
 
     with pytest.raises(ValueError, match="required columns"):
         detector.validate_schema(invalid)
+
+
+def test_capture_schema_validation_fails_when_required_columns_are_missing() -> None:
+    scorer = CaptureScoringEngine()
+    invalid = pd.DataFrame(
+        {
+            "customer_id": ["C000"],
+            "product_id": ["P1"],
+            "leakage_score": [0.2],
+            "gap_units": [50.0],
+        }
+    )
+
+    with pytest.raises(ValueError, match="required columns"):
+        scorer.validate_schema(invalid)
 
 
 def test_cluster_schema_allows_real_client_extras() -> None:
@@ -385,6 +453,57 @@ def test_leakage_actionability_routes_inactive_stale_and_zero_baseline_rows() ->
     assert "stale_customer" in str(routed.loc[2, "routing_reason"])
     assert str(routed.loc[3, "route_to_engine"]) == "technical_product_engine"
     assert "zero_baseline" in str(routed.loc[3, "routing_reason"])
+
+
+def test_capture_scoring_outputs_ranked_scores_bands_and_recommendations() -> None:
+    scorer = CaptureScoringEngine()
+    frame = _build_leakage_output_table().merge(
+        _build_client_table().rename(columns={"client_id": "customer_id"}),
+        on="customer_id",
+        how="left",
+    ).merge(
+        _build_client_product_table().rename(columns={"client_id": "customer_id"}),
+        on=["customer_id", "product_id"],
+        how="left",
+    ).merge(
+        _build_product_table(),
+        on="product_id",
+        how="left",
+    )
+
+    scored = scorer.score(frame)
+
+    assert len(scored) == 3
+    assert np.all(scored["capture_score"].between(0, 100))
+    assert scored["priority_rank"].is_unique
+    assert scored["priority_rank"].is_monotonic_increasing
+    assert not scored["recommended_action"].astype(str).str.len().eq(0).any()
+    assert set(scored["priority_band"]).issubset({"critical", "high", "medium", "low"})
+
+
+def test_capture_run_writes_metrics_artifact(tmp_path: Path) -> None:
+    project_root = tmp_path
+    features_dir = project_root / "backend" / "processed_data" / "historical"
+    output_dir = project_root / "backend" / "commodity-ai-engine" / "output" / "historical"
+    metrics_dir = output_dir / "metrics"
+    features_dir.mkdir(parents=True)
+    metrics_dir.mkdir(parents=True)
+
+    _build_client_table().iloc[:4].to_csv(features_dir / "clients.csv", index=False)
+    _build_product_table().to_csv(features_dir / "products.csv", index=False)
+    _build_client_product_table().iloc[:4].to_csv(features_dir / "client_product_features.csv", index=False)
+    _build_leakage_output_table().to_parquet(output_dir / "demand_leakage_signals.parquet", index=False)
+    _build_cluster_assignments().iloc[:4].to_parquet(output_dir / "cluster_assignments.parquet", index=False)
+    _build_backtest_predictions().to_parquet(metrics_dir / "forecast_backtest_predictions.parquet", index=False)
+
+    artifacts = run_capture_scoring("historical", project_root=project_root)
+
+    assert artifacts["capture_output"].exists()
+    assert artifacts["capture_metrics"].exists()
+
+    metrics = json.loads(artifacts["capture_metrics"].read_text(encoding="utf-8"))
+    assert "scored_rows" in metrics
+    assert "historical_validation_proxy" in metrics
 
 
 def test_historical_leakage_run_writes_metrics_artifact(tmp_path: Path) -> None:

@@ -28,6 +28,7 @@ Backward compatibility:
 python src/commodity_engine.py --mode historical --task clustering
 python src/commodity_engine.py --mode historical --task forecast
 python src/commodity_engine.py --mode historical --task leakage
+python src/commodity_engine.py --mode historical --task capture
 ```
 
 Available tasks:
@@ -35,6 +36,7 @@ Available tasks:
 - `forecast`
 - `evaluation`
 - `leakage`
+- `capture`
 
 ## Outputs
 
@@ -43,10 +45,12 @@ Main artifacts:
 - `cluster_profiles.parquet`
 - `consumption_forecast.parquet`
 - `demand_leakage_signals.parquet`
+- `capture_opportunities.parquet`
 - `metrics/cluster_metrics.json`
 - `metrics/forecast_metrics.json`
 - `metrics/forecast_backtest_predictions.parquet`
 - `metrics/demand_leakage_metrics.json`
+- `metrics/capture_opportunity_metrics.json`
 
 ## Entry Points
 
@@ -55,6 +59,7 @@ Use these functions from code:
 - `run_model_evaluation()`
 - `run_consumption_forecast()`
 - `run_demand_leakage()`
+- `run_capture_scoring()`
 
 ## Notes
 
