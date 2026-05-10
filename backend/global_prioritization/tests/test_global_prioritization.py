@@ -37,6 +37,41 @@ def test_commodity_rows_are_consolidated_with_next_purchase_precedence(tmp_path:
     assert consolidated[0]["explanation_ids"] == ["exp_n", "exp_c", "exp_l"]
 
 
+def test_commodity_merge_backfills_capture_score_into_next_purchase(tmp_path: Path) -> None:
+    service = GlobalPrioritizationService(project_root=tmp_path)
+    rows = [
+        {
+            "canonical_variant": "commodity.capture_opportunity",
+            "customer_id": "C001",
+            "product_id": "P001",
+            "capture_score": 35.0,
+            "priority_label": "high",
+            "recommended_action": "Follow up",
+        },
+        {
+            "canonical_variant": "commodity.next_purchase",
+            "customer_id": "C001",
+            "product_id": "P001",
+            "priority_label": "critical",
+            "purchase_probability": 0.8,
+            "contact_window_start": "2026-05-10",
+            "recommended_action": "Contact today",
+        },
+    ]
+
+    consolidated = service._consolidate_commodity_rows(
+        rows,
+        reference_date=pd.Timestamp("2026-05-10"),
+        explanation_map={},
+    )
+
+    assert len(consolidated) == 1
+    assert consolidated[0]["canonical_variant"] == "commodity.next_purchase"
+    assert consolidated[0]["capture_score"] == 35.0
+    assert consolidated[0]["global_priority_score"] == 56.0
+    assert consolidated[0]["global_priority_band"] == "medium"
+
+
 def test_technical_process_date_uses_pull_forward_rules(tmp_path: Path) -> None:
     service = GlobalPrioritizationService(project_root=tmp_path)
     reference = pd.Timestamp("2026-05-10")

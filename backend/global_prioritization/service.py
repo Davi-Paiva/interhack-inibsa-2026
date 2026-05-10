@@ -201,7 +201,7 @@ class GlobalPrioritizationService:
         consolidated: list[dict[str, Any]] = []
         for (customer_id, product_id), group in grouped.items():
             ordered = sorted(group, key=lambda item: COMMODITY_VARIANT_PRECEDENCE[item["canonical_variant"]])
-            canonical = dict(ordered[0])
+            canonical = self._merge_commodity_group_rows(ordered)
             source_variants = [self._string(item.get("canonical_variant")) for item in ordered]
             source_row_keys = [
                 self._source_row_key(self._string(item.get("canonical_variant")), customer_id, product_id)
@@ -229,6 +229,17 @@ class GlobalPrioritizationService:
             )
             consolidated.append(canonical)
         return consolidated
+
+    def _merge_commodity_group_rows(self, ordered_rows: list[dict[str, Any]]) -> dict[str, Any]:
+        """Preserve the highest-precedence variant while backfilling missing fields from sibling variants."""
+        merged = dict(ordered_rows[0])
+        for sibling in ordered_rows[1:]:
+            for key, value in sibling.items():
+                if key == "canonical_variant":
+                    continue
+                if key not in merged or self._is_missing_value(merged.get(key)):
+                    merged[key] = value
+        return merged
 
     def _load_technical_rows(self, mode: str) -> list[dict[str, Any]]:
         path = self.technical_output_dir(mode) / "technical_risk_assessments.csv"
@@ -508,6 +519,17 @@ class GlobalPrioritizationService:
             return numeric
         except (TypeError, ValueError):
             return 0.0
+
+    @staticmethod
+    def _is_missing_value(value: Any) -> bool:
+        if value is None:
+            return True
+        if isinstance(value, str):
+            return value == ""
+        try:
+            return bool(pd.isna(value))
+        except TypeError:
+            return False
 
 
 def build_global_alert_queue(
