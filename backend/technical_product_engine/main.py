@@ -5,6 +5,7 @@ This module orchestrates the complete technical product risk analysis pipeline,
 from data loading through risk assessment and final output generation.
 """
 import csv
+import json
 import logging
 from pathlib import Path
 from dataclasses import asdict
@@ -63,9 +64,20 @@ def export_assessments_to_csv(assessments, output_path: Path):
         writer.writeheader()
         
         for assessment in assessments:
-            writer.writerow(asdict(assessment))
+            writer.writerow({field: getattr(assessment, field) for field in fieldnames})
     
     logger.info(f"Export complete: {output_path}")
+
+
+def export_explanation_inputs_to_json(assessments, output_path: Path):
+    """Export technical explanation inputs with drift-signal detail."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = [asdict(assessment) for assessment in assessments]
+    output_path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=True),
+        encoding="utf-8",
+    )
+    logger.info("Exported %s technical explanation inputs to %s", len(payload), output_path)
 
 
 def main():
@@ -86,6 +98,7 @@ def main():
     data_dir = base_dir / "processed_data" / "historical"
     output_dir = base_dir / "technical_product_engine" / "output"
     output_file = output_dir / "technical_risk_assessments.csv"
+    explanation_input_file = output_dir / "technical_explanation_inputs.json"
     
     # Step 1: Load data
     logger.info("Step 1: Loading data...")
@@ -141,6 +154,7 @@ def main():
     # Step 5: Export results
     logger.info("Step 5: Exporting results...")
     export_assessments_to_csv(assessments, output_file)
+    export_explanation_inputs_to_json(assessments, explanation_input_file)
     
     # Step 6: Export high-risk subset
     high_risk = engine.get_high_risk_relationships(assessments, min_risk_level="high")
@@ -148,6 +162,13 @@ def main():
         high_risk_file = output_dir / "high_risk_relationships.csv"
         export_assessments_to_csv(high_risk, high_risk_file)
         logger.info(f"Exported {len(high_risk)} high-risk relationships to {high_risk_file}")
+
+    try:
+        from backend.explainability_engine.service import generate_technical_explanations
+
+        generate_technical_explanations("historical", project_root=base_dir.parent)
+    except Exception as exc:
+        logger.warning("Explainability generation failed for technical engine: %s", exc)
     
     logger.info("=" * 70)
     logger.info("TECHNICAL PRODUCT ENGINE - COMPLETE")

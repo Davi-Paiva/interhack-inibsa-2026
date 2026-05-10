@@ -8,7 +8,7 @@ comprehensive abandonment risk assessments for client-product relationships.
 
 import logging
 from typing import Any, List, Optional
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, field
 
 from ..domain.models import ClientProductContext
 from ..domain.signals import DriftSignal, build_inactivity_signal
@@ -57,6 +57,7 @@ class TechnicalRiskAssessment:
     peer_drift_score: float
     potential_gap: float
     drift_signal_count: int
+    drift_signals: list[dict[str, Any]] = field(default_factory=list)
 
 
 class TechnicalProductEngine:
@@ -133,6 +134,15 @@ class TechnicalProductEngine:
             peer_drift_score=risk_assessment.peer_drift_score,
             potential_gap=potential_gap,
             drift_signal_count=len(drift_signals),
+            drift_signals=[
+                {
+                    "signal_type": signal.signal_type.value,
+                    "severity": signal.severity,
+                    "metric_value": signal.metric_value,
+                    "threshold": signal.threshold,
+                }
+                for signal in drift_signals
+            ],
         )
     
     def analyze_batch(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from .common import *
 from .capture import CaptureScoringEngine
 from .clustering import CommodityCustomerCluster
@@ -12,6 +13,14 @@ _FEATURE_OUTPUT_FILES = {
     "products": "products.csv",
     "client_product_features": "client_product_features.csv",
 }
+
+
+def _generate_commodity_explainability(mode: str, project_root: Path) -> None:
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+    from backend.explainability_engine.service import generate_commodity_explanations
+
+    generate_commodity_explanations(mode, project_root=project_root)
 
 
 def _ensure_feature_tables(mode: str, project_root: Optional[Path] = None) -> dict[str, Path]:
@@ -441,6 +450,7 @@ def run_demand_leakage(
         leakage_metrics,
         _metrics_dir(commodity_output_dir) / "demand_leakage_metrics.json",
     )
+    _generate_commodity_explainability(mode, project_root)
     logger.info("Saved demand leakage metrics to %s", metrics_output_path)
     return {
         "leakage_output": leakage_output_path,
@@ -476,6 +486,7 @@ def run_capture_scoring(
         metrics,
         _metrics_dir(commodity_output_dir) / "capture_opportunity_metrics.json",
     )
+    _generate_commodity_explainability(mode, project_root)
     logger.info("Saved capture opportunity metrics to %s", metrics_output_path)
     return {
         "capture_output": capture_output_path,
@@ -524,6 +535,7 @@ def run_next_purchase_prediction(
         metrics,
         _metrics_dir(commodity_output_dir) / "next_purchase_metrics.json",
     )
+    _generate_commodity_explainability(mode, project_root)
     logger.info("Saved next purchase metrics to %s", metrics_output_path)
     return {
         "next_purchase_output": next_purchase_output_path,
