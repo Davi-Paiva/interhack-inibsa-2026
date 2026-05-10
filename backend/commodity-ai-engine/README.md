@@ -8,6 +8,7 @@ This module now:
 - reads the current processed tables from `backend/processed_data/<mode>/`
 - clusters real commodity customers from `clients.csv`
 - backtests a real next-30-day forecast from `sales_enriched.csv`
+- scores demand leakage opportunities from forecast + feature outputs
 - writes clustering, forecast, and evaluation artifacts under `backend/commodity-ai-engine/output/<mode>/`
 
 ## Inputs
@@ -26,12 +27,14 @@ Backward compatibility:
 ```bash
 python src/commodity_engine.py --mode historical --task clustering
 python src/commodity_engine.py --mode historical --task forecast
+python src/commodity_engine.py --mode historical --task leakage
 ```
 
 Available tasks:
 - `clustering`
 - `forecast`
 - `evaluation`
+- `leakage`
 
 ## Outputs
 
@@ -39,9 +42,11 @@ Main artifacts:
 - `cluster_assignments.parquet`
 - `cluster_profiles.parquet`
 - `consumption_forecast.parquet`
+- `demand_leakage_signals.parquet`
 - `metrics/cluster_metrics.json`
 - `metrics/forecast_metrics.json`
 - `metrics/forecast_backtest_predictions.parquet`
+- `metrics/demand_leakage_metrics.json`
 
 ## Entry Points
 
@@ -49,6 +54,7 @@ Use these functions from code:
 - `run_customer_clustering()`
 - `run_model_evaluation()`
 - `run_consumption_forecast()`
+- `run_demand_leakage()`
 
 ## Notes
 

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -14,8 +16,10 @@ if str(COMMODITY_SRC) not in sys.path:
 
 from commodity_engine import (  # noqa: E402
     CommodityCustomerCluster,
+    DemandLeakageDetector,
     DemandForecaster,
     build_historical_training_panel,
+    run_demand_leakage,
 )
 
 
@@ -84,6 +88,50 @@ def _build_cluster_assignments() -> pd.DataFrame:
     )
 
 
+def _build_forecast_output_table() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "customer_id": ["C000", "C001", "C002", "C003"],
+            "product_id": ["P1", "P1", "P2", "P2"],
+            "predicted_30d_sales": [160.0, 160.0, 160.0, 0.0],
+            "forecast_confidence": [0.2, 0.2, 0.2, 0.2],
+            "forecast_date": ["2025-04-30"] * 4,
+        }
+    )
+
+
+def _build_leakage_panel() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "snapshot_date": pd.to_datetime(["2025-03-31", "2025-03-31", "2025-03-31"]),
+            "customer_id": ["C000", "C001", "C002"],
+            "product_id": ["P1", "P1", "P2"],
+            "rolling_sales_30d": [60.0, 60.0, 30.0],
+            "campaign_lift_product": [0.0, 0.2, 0.0],
+            "client_product_return_rate": [0.0, 0.0, 0.1],
+            "coefficient_variation_30d": [0.2, 0.5, 0.1],
+            "is_active_customer": [True, False, True],
+            "days_since_last_order": [30, 220, 45],
+            "cluster_id": [0, 1, 2],
+        }
+    )
+
+
+def _build_backtest_predictions() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "snapshot_date": pd.to_datetime(["2025-03-31", "2025-03-31", "2025-03-31"]),
+            "customer_id": ["C000", "C001", "C002"],
+            "product_id": ["P1", "P1", "P2"],
+            "cluster_id": [0, 1, 2],
+            "actual_30d_sales": [50.0, 70.0, 20.0],
+            "predicted_30d_sales": [120.0, 120.0, 90.0],
+            "baseline_30d_sales": [60.0, 60.0, 30.0],
+            "forecast_confidence": [0.2, 0.2, 0.2],
+        }
+    )
+
+
 def test_cluster_loader_supports_csv_inputs(tmp_path: Path) -> None:
     client_table = _build_client_table()
     client_table.to_csv(tmp_path / "clients.csv", index=False)
@@ -121,6 +169,38 @@ def test_forecast_loader_supports_csv_inputs(tmp_path: Path) -> None:
     assert "customer_frequency_log1p" in merged.columns
     assert "is_active_customer" in merged.columns
     assert "cluster_id" in merged.columns
+
+
+def test_leakage_loader_supports_forecast_and_feature_inputs(tmp_path: Path) -> None:
+    _build_client_table().to_csv(tmp_path / "clients.csv", index=False)
+    _build_client_product_table().to_csv(tmp_path / "client_product_features.csv", index=False)
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    _build_forecast_output_table().to_parquet(output_dir / "consumption_forecast.parquet", index=False)
+    _build_cluster_assignments().iloc[:4].to_parquet(output_dir / "cluster_assignments.parquet", index=False)
+
+    detector = DemandLeakageDetector()
+    merged = detector.load_inputs(tmp_path, output_dir)
+
+    assert len(merged) == 4
+    assert "rolling_sales_30d" in merged.columns
+    assert "coefficient_variation_30d" in merged.columns
+    assert "cluster_id" in merged.columns
+
+
+def test_leakage_schema_validation_fails_when_required_columns_are_missing() -> None:
+    detector = DemandLeakageDetector()
+    invalid = pd.DataFrame(
+        {
+            "customer_id": ["C000"],
+            "product_id": ["P1"],
+            "predicted_30d_sales": [100.0],
+            "rolling_sales_30d": [80.0],
+        }
+    )
+
+    with pytest.raises(ValueError, match="required columns"):
+        detector.validate_schema(invalid)
 
 
 def test_cluster_schema_allows_real_client_extras() -> None:
@@ -188,7 +268,7 @@ def test_snapshot_target_uses_future_window_only() -> None:
 def test_forecast_predictions_are_non_negative_and_confidence_is_bounded() -> None:
     rows = []
     for month_index, snapshot_date in enumerate(
-        pd.date_range("2024-01-31", periods=18, freq="ME"),
+        pd.date_range("2024-01-31", periods=18, freq="M"),
         start=1,
     ):
         for customer_index in range(4):
@@ -249,3 +329,86 @@ def test_forecast_predictions_are_non_negative_and_confidence_is_bounded() -> No
     assert np.all(predictions >= 0)
     assert np.all(confidence >= 0)
     assert np.all(confidence <= 1)
+
+
+def test_leakage_scoring_is_bounded_and_penalizes_campaign_volatility_and_returns() -> None:
+    detector = DemandLeakageDetector()
+    base = pd.DataFrame(
+        {
+            "customer_id": ["C000", "C001", "C002", "C003"],
+            "product_id": ["P1", "P1", "P1", "P1"],
+            "predicted_30d_sales": [100.0, 100.0, 100.0, 0.0],
+            "rolling_sales_30d": [40.0, 40.0, 40.0, 10.0],
+            "campaign_lift_product": [0.0, 0.8, 0.0, 0.0],
+            "client_product_return_rate": [0.0, 0.0, 0.4, 0.0],
+            "coefficient_variation_30d": [0.1, 0.1, 0.8, 0.3],
+            "forecast_confidence": [0.2, 0.2, 0.2, 0.2],
+            "is_active_customer": [True, True, True, True],
+            "days_since_last_order": [10, 10, 10, 10],
+        }
+    )
+
+    scored = detector.compute_scores(base)
+
+    assert np.all(scored["gap_ratio"].between(0, 1))
+    assert np.all(scored["leakage_score"].between(0, 1))
+    assert float(scored.loc[0, "leakage_score"]) > float(scored.loc[1, "leakage_score"])
+    assert float(scored.loc[0, "leakage_score"]) > float(scored.loc[2, "leakage_score"])
+    assert float(scored.loc[3, "gap_ratio"]) == 0.0
+    assert float(scored.loc[3, "leakage_score"]) == 0.0
+
+
+def test_leakage_actionability_routes_inactive_stale_and_zero_baseline_rows() -> None:
+    detector = DemandLeakageDetector()
+    frame = pd.DataFrame(
+        {
+            "customer_id": ["C000", "C001", "C002", "C003"],
+            "product_id": ["P1", "P1", "P2", "P2"],
+            "predicted_30d_sales": [120.0, 120.0, 120.0, 120.0],
+            "rolling_sales_30d": [60.0, 60.0, 60.0, 0.0],
+            "campaign_lift_product": [0.0, 0.0, 0.0, 0.0],
+            "client_product_return_rate": [0.0, 0.0, 0.0, 0.0],
+            "coefficient_variation_30d": [0.1, 0.1, 0.1, 0.1],
+            "forecast_confidence": [0.2, 0.2, 0.2, 0.2],
+            "is_active_customer": [True, False, True, True],
+            "days_since_last_order": [20, 20, 300, 20],
+        }
+    )
+
+    routed = detector.filter_actionable(detector.compute_scores(frame))
+
+    assert bool(routed.loc[0, "is_actionable"]) is True
+    assert str(routed.loc[0, "route_to_engine"]) == "commodity_ai_engine"
+    assert str(routed.loc[1, "route_to_engine"]) == "technical_product_engine"
+    assert "inactive_customer" in str(routed.loc[1, "routing_reason"])
+    assert str(routed.loc[2, "route_to_engine"]) == "technical_product_engine"
+    assert "stale_customer" in str(routed.loc[2, "routing_reason"])
+    assert str(routed.loc[3, "route_to_engine"]) == "technical_product_engine"
+    assert "zero_baseline" in str(routed.loc[3, "routing_reason"])
+
+
+def test_historical_leakage_run_writes_metrics_artifact(tmp_path: Path) -> None:
+    project_root = tmp_path
+    features_dir = project_root / "backend" / "processed_data" / "historical"
+    output_dir = project_root / "backend" / "commodity-ai-engine" / "output" / "historical"
+    features_dir.mkdir(parents=True)
+    output_dir.mkdir(parents=True)
+
+    _build_client_table().iloc[:4].to_csv(features_dir / "clients.csv", index=False)
+    _build_client_product_table().iloc[:4].to_csv(features_dir / "client_product_features.csv", index=False)
+    _build_forecast_output_table().to_parquet(output_dir / "consumption_forecast.parquet", index=False)
+    _build_cluster_assignments().iloc[:4].to_parquet(output_dir / "cluster_assignments.parquet", index=False)
+
+    artifacts = run_demand_leakage(
+        "historical",
+        project_root=project_root,
+        historical_panel=_build_leakage_panel(),
+        backtest_predictions=_build_backtest_predictions(),
+    )
+
+    assert artifacts["leakage_output"].exists()
+    assert artifacts["leakage_metrics"].exists()
+
+    metrics = json.loads(artifacts["leakage_metrics"].read_text(encoding="utf-8"))
+    assert "actionable_count" in metrics
+    assert "historical_validation" in metrics
