@@ -9,6 +9,8 @@ import pandas as pd
 def merge_engine_outputs(
     commodity_results: pd.DataFrame | list[Any],
     technical_results: pd.DataFrame | list[Any],
+    *,
+    mode: str,
 ) -> pd.DataFrame | list[Any]:
     del commodity_results
     del technical_results
@@ -17,6 +19,6 @@ def merge_engine_outputs(
 
     project_root = Path(__file__).resolve().parents[1]
     service = GlobalPrioritizationService(project_root=project_root)
-    queue = service.build_queue("historical")
-    service.persist_queue(queue, "historical")
+    queue = service.build_queue(mode)
+    service.persist_queue(queue, mode)
     return queue

@@ -73,7 +73,10 @@ def main() -> None:
     outputs = run_cleaning_pipeline(mode=mode, config=config, sales_path=sales_path)
     feature_outputs = run_feature_pipeline(
         mode=mode,
-        config=FeatureConfig(processed_data_dir=config.processed_data_dir),
+        config=FeatureConfig(
+            processed_data_dir=config.processed_data_dir,
+            raw_data_dir=config.raw_data_dir,
+        ),
     )
     print(f"Cleaning pipeline finished for '{mode}' mode.")
     for dataset_name, output_path in outputs.items():
@@ -83,7 +86,7 @@ def main() -> None:
         for artifact_name, output_path in feature_outputs.items():
             print(f" - {artifact_name}: {output_path}")
     else:
-        print(f"Feature engineering is prepared for '{mode}' mode but no feature outputs were materialized.")
+        print(f"Feature engineering produced no materialized outputs for '{mode}' mode.")
 
 
 if __name__ == "__main__":

@@ -119,3 +119,10 @@ def test_records_frame_serializes_list_fields(tmp_path: Path) -> None:
     frame = service._records_to_frame(ranked)
     assert isinstance(frame.loc[0, "source_variants"], str)
     assert json.loads(frame.loc[0, "explanation_ids"]) == ["exp_1"]
+
+
+def test_technical_output_dir_is_mode_specific(tmp_path: Path) -> None:
+    service = GlobalPrioritizationService(project_root=tmp_path)
+    assert service.technical_output_dir("daily") == (
+        tmp_path / "backend" / "technical_product_engine" / "output" / "daily"
+    )

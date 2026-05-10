@@ -4,6 +4,7 @@ Main entry point for the technical product engine.
 This module orchestrates the complete technical product risk analysis pipeline,
 from data loading through risk assessment and final output generation.
 """
+import argparse
 import csv
 import json
 import logging
@@ -23,6 +24,29 @@ logger = logging.getLogger(__name__)
 ANALYTIC_BLOCK = "Productos Técnicos"
 
 
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Run the technical product engine.")
+    parser.add_argument(
+        "--mode",
+        choices=("historical", "daily"),
+        default="historical",
+        help="Pipeline mode to read/write processed and engine artifacts.",
+    )
+    parser.add_argument(
+        "--processed-data-dir",
+        type=Path,
+        default=None,
+        help="Optional override for the processed data root directory.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Optional override for the technical output root directory.",
+    )
+    return parser
+
+
 def export_assessments_to_csv(assessments, output_path: Path):
     """Export technical risk assessments to CSV file.
     
@@ -30,14 +54,9 @@ def export_assessments_to_csv(assessments, output_path: Path):
         assessments: List of TechnicalRiskAssessment objects
         output_path: Path to output CSV file
     """
-    if not assessments:
-        logger.warning("No assessments to export")
-        return
-    
-    logger.info(f"Exporting {len(assessments)} assessments to {output_path}")
-    
     # Ensure output directory exists
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Exporting {len(assessments)} assessments to {output_path}")
     
     # Convert assessments to dictionaries
     fieldnames = [
@@ -80,7 +99,17 @@ def export_explanation_inputs_to_json(assessments, output_path: Path):
     logger.info("Exported %s technical explanation inputs to %s", len(payload), output_path)
 
 
-def main():
+def _persist_empty_outputs(output_file: Path, explanation_input_file: Path) -> None:
+    export_assessments_to_csv([], output_file)
+    export_explanation_inputs_to_json([], explanation_input_file)
+
+
+def main(
+    mode: str = "historical",
+    *,
+    processed_data_dir: Path | None = None,
+    output_dir: Path | None = None,
+):
     """Main entry point for the technical product engine.
     
     Orchestrates the complete pipeline:
@@ -95,8 +124,10 @@ def main():
     
     # Define paths
     base_dir = Path(__file__).parent.parent
-    data_dir = base_dir / "processed_data" / "historical"
-    output_dir = base_dir / "technical_product_engine" / "output"
+    data_root = processed_data_dir.resolve() if processed_data_dir is not None else (base_dir / "processed_data")
+    technical_output_root = output_dir.resolve() if output_dir is not None else (base_dir / "technical_product_engine" / "output")
+    data_dir = data_root / mode
+    output_dir = technical_output_root / mode
     output_file = output_dir / "technical_risk_assessments.csv"
     explanation_input_file = output_dir / "technical_explanation_inputs.json"
     
@@ -113,8 +144,15 @@ def main():
     )
     
     if not contexts:
-        logger.error("No contexts generated. Exiting.")
-        return
+        logger.warning("No contexts generated. Writing empty technical outputs for '%s' mode.", mode)
+        _persist_empty_outputs(output_file, explanation_input_file)
+        try:
+            from backend.explainability_engine.service import generate_technical_explanations
+
+            generate_technical_explanations(mode, project_root=base_dir.parent)
+        except Exception as exc:
+            logger.warning("Explainability generation failed for empty technical run: %s", exc)
+        return aggregator, [], []
     
     logger.info(f"Built {len(contexts)} client-product contexts for analysis")
     
@@ -128,8 +166,15 @@ def main():
     assessments = engine.analyze_batch(contexts, peer_metrics_map=peer_metrics_map)
     
     if not assessments:
-        logger.error("No assessments generated. Exiting.")
-        return
+        logger.warning("No assessments generated. Writing empty technical outputs for '%s' mode.", mode)
+        _persist_empty_outputs(output_file, explanation_input_file)
+        try:
+            from backend.explainability_engine.service import generate_technical_explanations
+
+            generate_technical_explanations(mode, project_root=base_dir.parent)
+        except Exception as exc:
+            logger.warning("Explainability generation failed for empty technical run: %s", exc)
+        return aggregator, contexts, []
     
     # Step 4: Generate summary statistics
     logger.info("Step 4: Generating summary statistics...")
@@ -166,7 +211,7 @@ def main():
     try:
         from backend.explainability_engine.service import generate_technical_explanations
 
-        generate_technical_explanations("historical", project_root=base_dir.parent)
+        generate_technical_explanations(mode, project_root=base_dir.parent)
     except Exception as exc:
         logger.warning("Explainability generation failed for technical engine: %s", exc)
     
@@ -178,4 +223,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    args = _build_parser().parse_args()
+    main(
+        mode=args.mode,
+        processed_data_dir=args.processed_data_dir,
+        output_dir=args.output_dir,
+    )

@@ -6,18 +6,19 @@ from pipeline.merger import merge_engine_outputs
 
 
 class GlobalPipeline:
-    def run(self, data_dir: str):
+    def run(self, data_dir: str, mode: str = "historical"):
         raw_data = load_raw_data(data_dir)
 
-        features = run_feature_pipeline(raw_data)
+        features = run_feature_pipeline(raw_data, data_dir=data_dir, mode=mode)
 
-        commodity_results = run_commodity_pipeline(features)
+        commodity_results = run_commodity_pipeline(features, mode=mode)
 
-        technical_results = run_technical_pipeline(features)
+        technical_results = run_technical_pipeline(features, mode=mode)
 
         final_results = merge_engine_outputs(
             commodity_results,
             technical_results,
+            mode=mode,
         )
 
         return final_results

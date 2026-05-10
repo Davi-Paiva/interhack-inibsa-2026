@@ -619,10 +619,6 @@ def run_feature_pipeline(
     mode: RunMode,
     config: FeatureConfig,
 ) -> dict[str, Path]:
-    if mode == "daily":
-        logger.info("Daily feature mode is scaffolded but not materialized yet.")
-        return {}
-
     source_frame = load_feature_source_frame(mode, config)
     commodity_sales = _prepare_sales_frame(source_frame, commodity_only=True)
     all_product_sales = _prepare_sales_frame(source_frame, commodity_only=False)

@@ -50,13 +50,19 @@ def parse_args() -> argparse.Namespace:
         "--mode",
         choices=("historical", "daily"),
         default="historical",
-        help="Pipeline mode. Historical is implemented now; daily is scaffolded for future incremental ingestion.",
+        help="Pipeline mode. Both historical and daily materialize the full feature contract.",
     )
     parser.add_argument(
         "--processed-dir",
         type=Path,
         default=None,
         help="Optional override for the processed data root directory.",
+    )
+    parser.add_argument(
+        "--raw-data-dir",
+        type=Path,
+        default=None,
+        help="Optional override for the raw data directory used to enrich reference context.",
     )
     parser.add_argument(
         "--log-level",
@@ -78,6 +84,8 @@ def build_config(args: argparse.Namespace) -> FeatureConfig:
     config = FeatureConfig()
     if args.processed_dir is not None:
         config = replace(config, processed_data_dir=args.processed_dir.resolve())
+    if args.raw_data_dir is not None:
+        config = replace(config, raw_data_dir=args.raw_data_dir.resolve())
     return config
 
 
@@ -103,9 +111,9 @@ def empty_feature_tables() -> dict[str, object]:
     }
 
 
-def run_historical_feature_flow(config: FeatureConfig) -> dict[str, object]:
+def run_feature_flow(mode: RunMode, config: FeatureConfig) -> dict[str, object]:
     logger.info("Feature pipeline stage: load cleaned outputs")
-    source_frame = load_feature_source_frame("historical", config)
+    source_frame = load_feature_source_frame(mode, config)
 
     logger.info("Feature pipeline stage: prepare feature source")
     commodity_sales = prepare_feature_source_frame(source_frame)
@@ -120,7 +128,7 @@ def run_historical_feature_flow(config: FeatureConfig) -> dict[str, object]:
     tables, _ = align_feature_tables_to_contract(tables)
 
     logger.info("Feature pipeline stage: save CSV outputs")
-    csv_outputs = write_feature_frames(tables, mode="historical", config=config)
+    csv_outputs = write_feature_frames(tables, mode=mode, config=config)
 
     return {
         "source_rows": len(source_frame),
@@ -130,33 +138,13 @@ def run_historical_feature_flow(config: FeatureConfig) -> dict[str, object]:
     }
 
 
-def run_daily_feature_flow(config: FeatureConfig) -> dict[str, object]:
-    logger.info("Daily feature mode is not implemented yet.")
-    logger.info("Expected future flow: cleaned daily parquet -> incremental features -> validation -> metrics.")
-    # TODO: Load only the latest cleaned daily outputs.
-    # TODO: Recompute impacted client, product, and client-product feature rows only.
-    # TODO: Reuse the same validation and output contracts as historical mode.
-    return {
-        "source_rows": 0,
-        "prepared_rows": 0,
-        "tables": {},
-        "csv_outputs": {},
-    }
-
-
 def run_feature_orchestration(mode: RunMode, config: FeatureConfig) -> dict[str, object]:
-    if mode == "daily":
-        return run_daily_feature_flow(config)
-    return run_historical_feature_flow(config)
+    return run_feature_flow(mode, config)
 
 
 def print_execution_summary(mode: RunMode, result: dict[str, object], config: FeatureConfig) -> None:
     print(f"Feature engineering finished for '{mode}' mode.")
     print("Pipeline: RAW -> DATA CLEANING -> FEATURE ENGINEERING -> COMMODITY AI ENGINE -> TECHNICAL PRODUCT ENGINE")
-
-    if mode == "daily":
-        print("Daily mode is scaffolded but no outputs were materialized yet.")
-        return
 
     print(f" - cleaned source rows: {result['source_rows']}")
     print(f" - prepared commodity rows: {result['prepared_rows']}")

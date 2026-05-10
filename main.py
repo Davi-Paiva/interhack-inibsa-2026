@@ -8,6 +8,12 @@ from pipeline.orchestrator import GlobalPipeline
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the global pipeline.")
     parser.add_argument("data_dir", help="Path to the raw data folder")
+    parser.add_argument(
+        "--mode",
+        default="historical",
+        choices=("historical", "daily"),
+        help="Pipeline mode to execute.",
+    )
     return parser
 
 
@@ -23,7 +29,7 @@ def main() -> int:
     pipeline = GlobalPipeline()
 
     try:
-        final_results = pipeline.run(str(data_dir))
+        final_results = pipeline.run(str(data_dir), mode=args.mode)
     except Exception as exc:
         print(f"Pipeline execution failed: {exc}", file=sys.stderr)
         return 1

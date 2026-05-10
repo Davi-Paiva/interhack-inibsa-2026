@@ -7,7 +7,11 @@ from pathlib import Path
 import pandas as pd
 
 
-def run_commodity_pipeline(features: dict[str, pd.DataFrame]) -> pd.DataFrame:
+def run_commodity_pipeline(
+    features: dict[str, object],
+    *,
+    mode: str,
+) -> pd.DataFrame:
     del features
 
     project_root = Path(__file__).resolve().parents[1]
@@ -17,12 +21,7 @@ def run_commodity_pipeline(features: dict[str, pd.DataFrame]) -> pd.DataFrame:
 
     pipeline_module = import_module("commodity_engine_core.pipeline")
 
-    try:
-        pipeline_module.run_demand_leakage("historical", project_root=project_root)
-        pipeline_module.run_capture_scoring("historical", project_root=project_root)
-        artifacts = pipeline_module.run_next_purchase_prediction("historical", project_root=project_root)
-    except FileNotFoundError:
-        artifacts = pipeline_module.run_model_evaluation("historical", project_root=project_root)
+    artifacts = pipeline_module.run_model_evaluation(mode, project_root=project_root)
 
     output_path = artifacts["next_purchase_output"]
     return pd.read_parquet(output_path)

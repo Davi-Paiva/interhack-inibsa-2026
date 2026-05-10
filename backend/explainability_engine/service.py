@@ -37,8 +37,8 @@ class ExplainabilityService:
     def commodity_output_dir(self, mode: str) -> Path:
         return self.project_root / "backend" / "commodity-ai-engine" / "output" / mode
 
-    def technical_output_dir(self) -> Path:
-        return self.project_root / "backend" / "technical_product_engine" / "output"
+    def technical_output_dir(self, mode: str) -> Path:
+        return self.project_root / "backend" / "technical_product_engine" / "output" / mode
 
     def generate_commodity_records(self, mode: str) -> list[ExplanationRecord]:
         output_dir = self.commodity_output_dir(mode)
@@ -55,8 +55,7 @@ class ExplainabilityService:
         return records
 
     def generate_technical_records(self, mode: str) -> list[ExplanationRecord]:
-        del mode
-        output_dir = self.technical_output_dir()
+        output_dir = self.technical_output_dir(mode)
         input_path = output_dir / "technical_explanation_inputs.json"
         if not input_path.exists():
             return []

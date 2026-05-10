@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pandas as pd
 
@@ -143,3 +144,10 @@ def test_records_to_frame_serializes_nested_fields() -> None:
     frame = service._records_to_frame(records)
     assert isinstance(frame.loc[0, "contributing_factors"], str)
     assert isinstance(json.loads(frame.loc[0, "supporting_metrics"]), dict)
+
+
+def test_technical_output_dir_is_mode_specific(tmp_path: Path) -> None:
+    service = ExplainabilityService(project_root=tmp_path)
+    assert service.technical_output_dir("daily") == (
+        tmp_path / "backend" / "technical_product_engine" / "output" / "daily"
+    )

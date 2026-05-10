@@ -39,8 +39,8 @@ class GlobalPrioritizationService:
     def commodity_output_dir(self, mode: str) -> Path:
         return self.project_root / "backend" / "commodity-ai-engine" / "output" / mode
 
-    def technical_output_dir(self) -> Path:
-        return self.project_root / "backend" / "technical_product_engine" / "output"
+    def technical_output_dir(self, mode: str) -> Path:
+        return self.project_root / "backend" / "technical_product_engine" / "output" / mode
 
     def explainability_output_dir(self, mode: str) -> Path:
         return self.project_root / "backend" / "explainability_engine" / "output" / mode
@@ -55,7 +55,7 @@ class GlobalPrioritizationService:
             explanation_map=explanation_map,
         )
         technical_rows = self._build_technical_rows(
-            self._load_technical_rows(),
+            self._load_technical_rows(mode),
             reference_date=reference_date,
             explanation_map=explanation_map,
         )
@@ -230,8 +230,8 @@ class GlobalPrioritizationService:
             consolidated.append(canonical)
         return consolidated
 
-    def _load_technical_rows(self) -> list[dict[str, Any]]:
-        path = self.technical_output_dir() / "technical_risk_assessments.csv"
+    def _load_technical_rows(self, mode: str) -> list[dict[str, Any]]:
+        path = self.technical_output_dir(mode) / "technical_risk_assessments.csv"
         if not path.exists():
             return []
         technical_df = pd.read_csv(path)
