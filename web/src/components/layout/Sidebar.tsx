@@ -15,9 +15,9 @@ const navigation = [
 
 export function Sidebar() {
   return (
-    <div className="flex h-screen w-64 flex-col border-r border-gray-200 bg-white">
+    <div className="flex w-full flex-col border-b border-gray-200 bg-white md:h-screen md:w-64 md:border-b-0 md:border-r">
       {/* Logo/Brand */}
-      <div className="flex h-16 items-center border-b border-gray-200 px-6">
+      <div className="flex h-16 items-center border-b border-gray-200 px-4 md:px-6">
         <div className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600">
             <Activity className="h-5 w-5 text-white" />
@@ -30,14 +30,15 @@ export function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 space-y-1 px-3 py-4">
+      <nav className="flex-1 overflow-x-auto px-3 py-3 md:space-y-1 md:py-4">
+        <div className="flex gap-2 md:block">
         {navigation.map((item) => (
           <NavLink
             key={item.name}
             to={item.href}
             className={({ isActive }) =>
               cn(
-                'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                'flex items-center gap-3 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors',
                 isActive
                   ? 'bg-blue-600 text-white'
                   : 'text-gray-600 hover:bg-gray-100'
@@ -48,10 +49,11 @@ export function Sidebar() {
             {item.name}
           </NavLink>
         ))}
+        </div>
       </nav>
 
       {/* Footer */}
-      <div className="border-t border-gray-200 p-4">
+      <div className="hidden border-t border-gray-200 p-4 md:block">
         <div className="text-xs text-gray-500">
           <p className="font-medium">Sistema v1.0</p>
           <p className="mt-1">Última actualización: Hoy</p>

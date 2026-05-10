@@ -1,0 +1,27 @@
+Removed extra or temporary features compared with Excel contract:
+
+[client_features]
+- first_order_date
+- last_order_date
+- return_orders_30d
+- orders_30d
+- daily_revenue_mean_30d
+- daily_revenue_std_30d
+
+[product_features]
+- product_total_orders
+- first_order_date
+- last_order_date
+- current_sales_30d
+- previous_sales_30d
+
+[client_product_features]
+- first_order_date
+- last_order_date
+- current_sales_30d
+- previous_sales_30d
+
+Notes:
+- These columns are used as intermediate support variables during feature construction.
+- They are intentionally excluded from the final persisted contract.
+- Current embedding features are not listed here because they are part of the exported output.
