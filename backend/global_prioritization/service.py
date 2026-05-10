@@ -220,7 +220,11 @@ class GlobalPrioritizationService:
                 canonical,
                 process_day_bucket=canonical["process_day_bucket"],
             )
-            canonical["global_priority_band"] = self._priority_band(canonical["global_priority_score"])
+            canonical["global_priority_band"] = self._global_priority_band_for_row(
+                "commodity_ai_engine",
+                score=canonical["global_priority_score"],
+                priority_label=canonical.get("priority_label"),
+            )
             canonical["global_alert_id"] = self._global_alert_id(
                 canonical["source_engine"],
                 self._string(canonical.get("canonical_variant")),
@@ -265,6 +269,7 @@ class GlobalPrioritizationService:
             process_day_bucket = self._bucket_for_date(process_on_date, reference_date)
             priority_level = self._string(row.get("priority_level")) or None
             inactivity_ratio = self._float(row.get("inactivity_ratio"))
+            global_priority_score = self._technical_global_score(row)
             built.append(
                 {
                     **row,
@@ -280,8 +285,12 @@ class GlobalPrioritizationService:
                     "explanation_ids": self._collect_explanations([source_row_key], explanation_map),
                     "process_on_date": process_on_date,
                     "process_day_bucket": process_day_bucket,
-                    "global_priority_score": self._technical_global_score(row),
-                    "global_priority_band": self._priority_band(self._technical_global_score(row)),
+                    "global_priority_score": global_priority_score,
+                    "global_priority_band": self._global_priority_band_for_row(
+                        "technical_product_engine",
+                        score=global_priority_score,
+                        priority_label=priority_level,
+                    ),
                     "global_alert_id": self._global_alert_id(
                         "technical_product_engine",
                         source_variant,
@@ -453,6 +462,26 @@ class GlobalPrioritizationService:
         if score >= 55.0:
             return "medium"
         return "low"
+
+    def _global_priority_band_for_row(
+        self,
+        source_engine: str,
+        *,
+        score: float,
+        priority_label: Any = None,
+    ) -> str:
+        if source_engine == "technical_product_engine":
+            source_band = self._technical_priority_band(priority_label)
+            if source_band is not None:
+                return source_band
+        return self._priority_band(score)
+
+    @staticmethod
+    def _technical_priority_band(priority_label: Any) -> str | None:
+        label = "" if priority_label is None else str(priority_label).strip().lower()
+        if label in {"low", "medium", "high", "critical"}:
+            return label
+        return None
 
     def _technical_recommendation(self, priority_level: str | None, inactivity_ratio: float) -> str:
         drift_count = 0  # Not available in this context
