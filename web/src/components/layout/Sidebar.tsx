@@ -1,9 +1,11 @@
+import { useRef } from 'react';
 import { NavLink } from 'react-router-dom';
 import { 
   LayoutDashboard, 
   AlertCircle, 
   Building2, 
-  Activity
+  Activity,
+  Upload
 } from 'lucide-react';
 import { cn } from '../../utils/helpers';
 
@@ -14,6 +16,8 @@ const navigation = [
 ];
 
 export function Sidebar() {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   return (
     <div className="flex w-full flex-col border-b border-gray-200 bg-white md:h-screen md:w-64 md:border-b-0 md:border-r">
       {/* Logo/Brand */}
@@ -51,6 +55,24 @@ export function Sidebar() {
         ))}
         </div>
       </nav>
+
+      <div className="border-t border-gray-200 p-3 md:p-4">
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="hidden"
+          accept=".csv,.json,.xlsx,.xls"
+          aria-label="Upload data file"
+        />
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+        >
+          <Upload className="h-4 w-4" />
+          Upload data
+        </button>
+      </div>
 
       {/* Footer */}
       <div className="hidden border-t border-gray-200 p-4 md:block">

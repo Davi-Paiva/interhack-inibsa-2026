@@ -173,20 +173,6 @@ export function PriorityQueuePage() {
                   </th>
                   <th
                     className="p-4 text-left text-sm font-medium cursor-pointer hover:bg-gray-200"
-                    onClick={() => handleSort('riskScore')}
-                  >
-                    Riesgo
-                    <SortIcon field="riskScore" />
-                  </th>
-                  <th
-                    className="p-4 text-left text-sm font-medium cursor-pointer hover:bg-gray-200"
-                    onClick={() => handleSort('priorityScore')}
-                  >
-                    Prioridad
-                    <SortIcon field="priorityScore" />
-                  </th>
-                  <th
-                    className="p-4 text-left text-sm font-medium cursor-pointer hover:bg-gray-200"
                     onClick={() => handleSort('potentialRevenue')}
                   >
                     Revenue Potencial
@@ -223,40 +209,6 @@ export function PriorityQueuePage() {
                     </td>
                     <td className="p-4">
                       <Badge variant="outline">{clinic.productFamily}</Badge>
-                    </td>
-                    <td className="p-4">
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full ${
-                              clinic.riskScore >= 0.8
-                                ? 'bg-red-500'
-                                : clinic.riskScore >= 0.6
-                                ? 'bg-orange-500'
-                                : clinic.riskScore >= 0.4
-                                ? 'bg-yellow-500'
-                                : 'bg-green-500'
-                            }`}
-                            style={{ width: `${clinic.riskScore * 100}%` }}
-                          />
-                        </div>
-                        <span className="text-sm font-medium w-12">
-                          {(clinic.riskScore * 100).toFixed(0)}%
-                        </span>
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-blue-500"
-                            style={{ width: `${clinic.priorityScore * 100}%` }}
-                          />
-                        </div>
-                        <span className="text-sm font-medium w-12">
-                          {(clinic.priorityScore * 100).toFixed(0)}%
-                        </span>
-                      </div>
                     </td>
                     <td className="p-4 font-medium">
                       {formatCurrency(clinic.potentialRevenue)}
