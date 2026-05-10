@@ -367,7 +367,11 @@ class GlobalPrioritizationService:
                 canonical,
                 process_day_bucket=canonical["process_day_bucket"],
             )
-            canonical["global_priority_band"] = self._priority_band(canonical["global_priority_score"])
+            canonical["global_priority_band"] = self._global_priority_band_for_row(
+                "commodity_ai_engine",
+                score=canonical["global_priority_score"],
+                priority_label=canonical.get("priority_label"),
+            )
             canonical["global_alert_id"] = self._global_alert_id(
                 canonical["source_engine"],
                 self._string(canonical.get("canonical_variant")),
@@ -413,6 +417,7 @@ class GlobalPrioritizationService:
             process_day_bucket = self._bucket_for_date(process_on_date, reference_date)
             priority_level = self._string(row.get("priority_level")) or None
             inactivity_ratio = self._float(row.get("inactivity_ratio"))
+            global_priority_score = self._technical_global_score(row)
             built.append(
                 {
                     **row,
@@ -429,8 +434,12 @@ class GlobalPrioritizationService:
                     "alert_reason_summary": self._collect_reason_summary([source_row_key], reason_map) or self._technical_reason_summary(row),
                     "process_on_date": process_on_date,
                     "process_day_bucket": process_day_bucket,
-                    "global_priority_score": self._technical_global_score(row),
-                    "global_priority_band": self._priority_band(self._technical_global_score(row)),
+                    "global_priority_score": global_priority_score,
+                    "global_priority_band": self._global_priority_band_for_row(
+                        "technical_product_engine",
+                        score=global_priority_score,
+                        priority_label=priority_level,
+                    ),
                     "global_alert_id": self._global_alert_id(
                         "technical_product_engine",
                         source_variant,
@@ -606,17 +615,17 @@ class GlobalPrioritizationService:
 
     def _technical_process_date(self, row: dict[str, Any], *, reference_date: pd.Timestamp) -> pd.Timestamp:
         priority_level = self._string(row.get("priority_level"))
-        base_offsets = {"critical": 0, "high": 1, "medium": 3, "low": 7}
-        process_on_date = reference_date + pd.Timedelta(days=base_offsets.get(priority_level, 7))
+        base_offsets = {"critical": 2, "high": 5, "medium": 10, "low": 14}
+        process_on_date = reference_date + pd.Timedelta(days=base_offsets.get(priority_level, 14))
 
         inactivity_ratio = self._float(row.get("inactivity_ratio"))
         drift_signal_count = int(self._float(row.get("drift_signal_count")))
-        if inactivity_ratio >= 3.0:
+        if inactivity_ratio >= 8.0 and drift_signal_count >= 3:
             return reference_date
-        if inactivity_ratio >= 2.0 and process_on_date > reference_date + pd.Timedelta(days=1):
-            process_on_date = reference_date + pd.Timedelta(days=1)
-        if drift_signal_count >= 2 and priority_level == "medium":
-            candidate = reference_date + pd.Timedelta(days=2)
+        if inactivity_ratio >= 6.0 and drift_signal_count >= 3 and priority_level == "critical":
+            process_on_date = min(process_on_date, reference_date + pd.Timedelta(days=1))
+        if drift_signal_count >= 4 and priority_level in ("high", "critical"):
+            candidate = reference_date + pd.Timedelta(days=3)
             if candidate < process_on_date:
                 process_on_date = candidate
         return process_on_date
@@ -654,33 +663,59 @@ class GlobalPrioritizationService:
 
     def _technical_global_score(self, row: dict[str, Any]) -> float:
         priority_score = self._float(row.get("priority_score"))
-        inactivity_ratio = self._float(row.get("inactivity_ratio"))
-        base_score = min(priority_score / 1.20, 1.0) * 90.0
-        if inactivity_ratio >= 3.0:
-            urgency_bonus = 10.0
-        elif inactivity_ratio >= 2.0:
-            urgency_bonus = 5.0
+        drift_signal_count = int(self._float(row.get("drift_signal_count")))
+        # Much more aggressive scaling - median priority_score is 0.6, max is 8.4
+        # Scale to use full 0-80 range more evenly
+        base_score = min(priority_score / 10.0, 1.0) * 75.0
+        # Reward multiple drift signals
+        if drift_signal_count >= 4:
+            drift_bonus = 5.0
+        elif drift_signal_count >= 3:
+            drift_bonus = 3.0
         else:
-            urgency_bonus = 0.0
-        return min(base_score + urgency_bonus, 100.0)
+            drift_bonus = 0.0
+        return min(base_score + drift_bonus, 100.0)
 
     def _priority_band(self, score: float) -> str:
-        if score >= 85.0:
+        if score >= 95.0:
             return "critical"
-        if score >= 65.0:
+        if score >= 80.0:
             return "high"
-        if score >= 40.0:
+        if score >= 55.0:
             return "medium"
         return "low"
 
+    def _global_priority_band_for_row(
+        self,
+        source_engine: str,
+        *,
+        score: float,
+        priority_label: Any = None,
+    ) -> str:
+        if source_engine == "technical_product_engine":
+            source_band = self._technical_priority_band(priority_label)
+            if source_band is not None:
+                return source_band
+        return self._priority_band(score)
+
+    @staticmethod
+    def _technical_priority_band(priority_label: Any) -> str | None:
+        label = "" if priority_label is None else str(priority_label).strip().lower()
+        if label in {"low", "medium", "high", "critical"}:
+            return label
+        return None
+
     def _technical_recommendation(self, priority_level: str | None, inactivity_ratio: float) -> str:
+        drift_count = 0  # Not available in this context
+        if inactivity_ratio >= 8.0:
+            return "URGENT: Customer fully disengaged with multiple drift signals - immediate retention call required."
         if priority_level == "critical":
-            return "Review today and trigger immediate retention outreach for this technical relationship."
+            return "High-priority retention case - schedule outreach within 2-3 days."
         if priority_level == "high":
-            return "Review within one day and validate the recent commercial deterioration with the sales owner."
-        if inactivity_ratio >= 2.0:
-            return "Review this week and confirm whether the customer has missed the expected reorder cycle."
-        return "Keep in the technical review queue and monitor the next scheduled cycle."
+            return "Notable risk detected - contact customer within a week to assess needs."
+        if priority_level == "medium":
+            return "Monitor relationship and plan proactive check-in within 2 weeks."
+        return "Track for patterns - routine monitoring sufficient."
 
     def _collect_explanations(
         self,

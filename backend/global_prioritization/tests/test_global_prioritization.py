@@ -85,6 +85,30 @@ def test_technical_process_date_uses_pull_forward_rules(tmp_path: Path) -> None:
     assert service._bucket_for_date(process_on_date, reference) == "today"
 
 
+def test_technical_rows_keep_source_priority_band(tmp_path: Path) -> None:
+    service = GlobalPrioritizationService(project_root=tmp_path)
+    rows = [
+        {
+            "client_id": "C002",
+            "product_id": "P002",
+            "risk_level": "critical",
+            "priority_level": "critical",
+            "priority_score": 6.0,
+            "inactivity_ratio": 4.0,
+            "drift_signal_count": 1,
+        }
+    ]
+
+    built = service._build_technical_rows(
+        rows,
+        reference_date=pd.Timestamp("2026-05-10"),
+        explanation_map={},
+    )
+
+    assert built[0]["global_priority_score"] == 45.0
+    assert built[0]["global_priority_band"] == "critical"
+
+
 def test_ranking_sorts_by_process_date_then_score(tmp_path: Path) -> None:
     service = GlobalPrioritizationService(project_root=tmp_path)
     rows = [
