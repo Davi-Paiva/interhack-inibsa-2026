@@ -78,7 +78,7 @@ def _build_snapshot_dates(sales: pd.DataFrame) -> List[pd.Timestamp]:
         return []
     max_sale_date = sales["sale_date"].max().normalize()
     first_month_end = sales["sale_date"].min().to_period("M").to_timestamp("M")
-    all_month_ends = pd.date_range(first_month_end, max_sale_date, freq="M")
+    all_month_ends = pd.date_range(first_month_end, max_sale_date, freq="ME")
     snapshot_dates = [
         ts.normalize()
         for ts in all_month_ends
@@ -219,7 +219,7 @@ def run_customer_clustering(mode: str, project_root: Optional[Path] = None) -> P
         client_df = clusterer.load_inputs(features_dir)
         matrix = clusterer.prepare_matrix(client_df)
     else:
-        clusterer = CommodityCustomerCluster()
+        clusterer = CommodityCustomerCluster(n_clusters=5, random_state=42)
         client_df = clusterer.load_inputs(features_dir)
         matrix = clusterer.prepare_matrix(client_df)
         clusterer.fit(matrix, raw_df=client_df)

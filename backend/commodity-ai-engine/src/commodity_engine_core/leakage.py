@@ -52,10 +52,10 @@ class DemandLeakageDetector:
 
     def __init__(
         self,
-        min_gap_units: float = 25.0,
-        min_gap_ratio: float = 0.25,
-        min_leakage_score: float = 0.15,
-        max_days_since_last_order: int = 180,
+        min_gap_units: float = 15.0,
+        min_gap_ratio: float = 0.20,
+        min_leakage_score: float = 0.10,
+        max_days_since_last_order: int = 240,
     ):
         self.min_gap_units = float(min_gap_units)
         self.min_gap_ratio = float(min_gap_ratio)

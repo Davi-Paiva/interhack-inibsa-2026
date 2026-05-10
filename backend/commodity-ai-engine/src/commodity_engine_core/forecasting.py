@@ -93,9 +93,14 @@ class DemandForecaster:
         self.product_key_column: Optional[str] = None
         self.customer_key_column: str = "customer_id"
         self.model_params = model_params or {
-            "learning_rate": 0.05,
-            "num_leaves": 31,
-            "max_depth": 5,
+            "learning_rate": 0.08,
+            "num_leaves": 50,
+            "max_depth": 7,
+            "min_child_samples": 20,
+            "subsample": 0.8,
+            "colsample_bytree": 0.8,
+            "reg_alpha": 0.1,
+            "reg_lambda": 0.1,
             "objective": "regression",
             "metric": "rmse",
             "verbosity": -1,

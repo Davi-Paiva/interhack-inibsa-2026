@@ -1,19 +1,23 @@
 {
-  "n_clusters": 3,
-  "rows": 6364,
-  "inertia": 41703.12769935941,
-  "silhouette_score": 0.30944629518000677,
-  "davies_bouldin_score": 1.35289184828355,
-  "calinski_harabasz_score": 1673.02315339337,
+  "n_clusters": 5,
+  "rows": 8013,
+  "inertia": 38557.34555257632,
+  "silhouette_score": 0.30886237225778235,
+  "davies_bouldin_score": 1.1606119725728898,
+  "calinski_harabasz_score": 2158.5628629505018,
   "cluster_counts": {
-    "0": 1270,
-    "1": 1046,
-    "2": 4048
+    "0": 574,
+    "1": 3328,
+    "2": 166,
+    "3": 2409,
+    "4": 1536
   },
   "cluster_labels": {
-    "0": "null_or_marginal",
-    "1": "loyal",
-    "2": "promiscuous"
+    "0": "cluster_0",
+    "1": "cluster_1",
+    "2": "cluster_2",
+    "3": "cluster_3",
+    "4": "cluster_4"
   },
-  "min_cluster_share": 0.1643620364550597
+  "min_cluster_share": 0.020716335954074627
 }
