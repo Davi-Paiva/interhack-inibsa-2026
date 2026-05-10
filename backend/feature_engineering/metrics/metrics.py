@@ -41,8 +41,8 @@ def build_feature_metrics(
             "max": None,
         },
         "daily_incremental_features": {
-            "status": "todo",
-            "note": "Future support should only recompute impacted entities for daily runs.",
+            "status": "implemented",
+            "note": "Daily runs now persist a delta/state manifest so serving layers can publish only new alerts.",
         },
         "feature_drift_monitoring": {
             "status": "todo",
@@ -87,8 +87,8 @@ def build_feature_metrics_bundle(
         "table_count": len(tables),
         "table_metrics": table_metrics,
         "daily_incremental_features": {
-            "status": "todo",
-            "note": "Future support should only recompute impacted entities for daily runs.",
+            "status": "implemented",
+            "note": "Daily runs now persist a delta/state manifest so serving layers can publish only new alerts.",
         },
         "feature_drift_monitoring": {
             "status": "todo",

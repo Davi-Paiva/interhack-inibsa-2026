@@ -1,0 +1,39 @@
+{
+  "mode": "daily",
+  "generated_at": "2026-05-10T07:23:41.452422+00:00",
+  "source_rows": 152618,
+  "snapshot_date": "2025-12-29",
+  "tables": {
+    "client_features": {
+      "current_rows": 8013,
+      "previous_rows": 8013,
+      "changed_rows": 0,
+      "removed_rows": 0,
+      "unchanged_rows": 8013,
+      "primary_key": [
+        "client_id"
+      ]
+    },
+    "product_features": {
+      "current_rows": 25,
+      "previous_rows": 25,
+      "changed_rows": 0,
+      "removed_rows": 0,
+      "unchanged_rows": 25,
+      "primary_key": [
+        "product_id"
+      ]
+    },
+    "client_product_features": {
+      "current_rows": 29673,
+      "previous_rows": 29673,
+      "changed_rows": 0,
+      "removed_rows": 0,
+      "unchanged_rows": 29673,
+      "primary_key": [
+        "client_id",
+        "product_id"
+      ]
+    }
+  }
+}

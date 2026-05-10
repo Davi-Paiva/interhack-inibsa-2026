@@ -1,0 +1,15 @@
+{
+  "mode": "daily",
+  "generated_at": "2026-05-10T07:01:12.333302+00:00",
+  "by_variant": {
+    "commodity.next_purchase": {
+      "feedback_count": 4,
+      "useful_feedback_rate": 0.75,
+      "false_positive_rate": 0.25,
+      "top_action_taken": "llamada",
+      "top_business_outcome": "pedido_generado",
+      "top_root_cause": "recompra_inminente_confirmada",
+      "delegate_hint": "Las alertas similares convierten mejor cuando se actuan rapido, normalmente con llamada."
+    }
+  }
+}

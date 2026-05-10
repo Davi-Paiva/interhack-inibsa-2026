@@ -6,8 +6,8 @@ Lightweight pandas-based feature engineering for the Commodity AI Engine.
 
 - Reads processed parquet outputs from `backend/data_processing/`.
 - Runs after the cleaning pipeline.
-- Materializes only `historical` features today.
-- Keeps the `daily` mode entrypoints and config ready for future incremental support.
+- Materializes the full feature contract for both `historical` and `daily`.
+- Persists `daily` state and delta artifacts so downstream layers can publish only new alerts.
 - Focuses on behavioral features, aggregations, rolling metrics, and simple trend metrics.
 
 ## Structure
@@ -69,7 +69,7 @@ streamlit run backend/feature_engineering/plots/dashboard.py
 
 ## Notes
 
-- `daily` mode is intentionally scaffolded but does not materialize features yet.
-- TODOs are already included for daily incremental features, feature drift monitoring, and future feature store support.
+- `historical` remains the training-oriented feature build.
+- `daily` still writes the full serving tables expected by the engines, and additionally writes state + delta artifacts for new-vs-previous-run comparisons.
 - This module does not perform cleaning, anomaly detection, forecasting, embeddings, or ML modeling.
 - The Streamlit dashboard is intended for feature validation, debugging, explainability, and hackathon demos.

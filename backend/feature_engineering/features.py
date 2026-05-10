@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
@@ -11,21 +14,23 @@ try:
     from .embeddings import (
         CLIENT_EMBEDDING_COLUMNS,
         CLIENT_PRODUCT_EMBEDDING_COLUMNS,
+        EMBEDDING_FEATURE_PREFIXES,
         PRODUCT_EMBEDDING_COLUMNS,
         EmbeddingFeatureBundle,
         build_embedding_feature_bundle,
     )
-    from .utils import ensure_directory, read_csv_frame, write_csv_frame
+    from .utils import ensure_directory, read_csv_frame, write_csv_frame, write_json
 except (ImportError, ValueError):
     from config import FeatureConfig, RunMode
     from embeddings import (
         CLIENT_EMBEDDING_COLUMNS,
         CLIENT_PRODUCT_EMBEDDING_COLUMNS,
+        EMBEDDING_FEATURE_PREFIXES,
         PRODUCT_EMBEDDING_COLUMNS,
         EmbeddingFeatureBundle,
         build_embedding_feature_bundle,
     )
-    from utils import ensure_directory, read_csv_frame, write_csv_frame
+    from utils import ensure_directory, read_csv_frame, write_csv_frame, write_json
 
 
 logger = logging.getLogger(__name__)
@@ -120,6 +125,23 @@ FEATURE_OUTPUT_FILES = {
     "product_features": "products.csv",
     "client_product_features": "client_product_features.csv",
 }
+FEATURE_PRIMARY_KEYS = {
+    "client_features": ["client_id"],
+    "product_features": ["product_id"],
+    "client_product_features": ["client_id", "product_id"],
+}
+DAILY_DELTA_OUTPUT_FILES = {
+    "client_features": "changed_clients.csv",
+    "product_features": "changed_products.csv",
+    "client_product_features": "changed_client_product_features.csv",
+}
+FEATURE_STATE_OUTPUT_FILES = {
+    "client_features": "clients.json",
+    "product_features": "products.json",
+    "client_product_features": "client_product_features.json",
+}
+DAILY_DELTA_MANIFEST_FILE = "daily_feature_delta.json"
+FEATURE_STATE_MANIFEST_FILE = "feature_state_manifest.json"
 
 
 def _safe_ratio(numerator: pd.Series, denominator: pd.Series) -> pd.Series:
@@ -621,6 +643,202 @@ def align_feature_tables_to_contract(
     return aligned_frames, removed_columns_by_table
 
 
+def _json_safe_value(value: object) -> object:
+    if value is None:
+        return None
+    if isinstance(value, (pd.Timestamp, datetime)):
+        return pd.Timestamp(value).isoformat()
+    if isinstance(value, np.generic):
+        return value.item()
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return value
+
+
+def _row_signature_frame(frame: pd.DataFrame, *, key_columns: list[str]) -> pd.DataFrame:
+    if frame.empty:
+        return pd.DataFrame(columns=[*key_columns, "__signature"])
+    value_columns = [
+        column
+        for column in frame.columns
+        if column not in key_columns
+        and not any(column.startswith(prefix) for prefix in EMBEDDING_FEATURE_PREFIXES)
+    ]
+    signatures = frame.apply(
+        lambda row: hashlib.sha1(
+            json.dumps(
+                {column: _json_safe_value(row[column]) for column in value_columns},
+                ensure_ascii=True,
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest(),
+        axis=1,
+    )
+    return frame[key_columns].copy().assign(__signature=signatures.astype("string"))
+
+
+def _read_state_frame(path: Path, expected_columns: list[str]) -> pd.DataFrame:
+    if not path.exists():
+        return pd.DataFrame(columns=expected_columns)
+    if path.suffix == ".json":
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        frame = pd.DataFrame(payload) if isinstance(payload, list) else pd.DataFrame(columns=expected_columns)
+    else:
+        frame = read_csv_frame(path)
+    for column in expected_columns:
+        if column not in frame.columns:
+            frame[column] = pd.NA
+    return frame[expected_columns].copy()
+
+
+def load_feature_state_frames(
+    *,
+    mode: RunMode,
+    config: FeatureConfig,
+) -> dict[str, pd.DataFrame]:
+    state_dir = config.state_dir_for_mode(mode)
+    frames: dict[str, pd.DataFrame] = {}
+    for table_name, file_name in FEATURE_STATE_OUTPUT_FILES.items():
+        json_path = state_dir / file_name
+        csv_fallback_path = state_dir / FEATURE_OUTPUT_FILES[table_name]
+        path = json_path if json_path.exists() else csv_fallback_path
+        frames[table_name] = _read_state_frame(path, FEATURE_TABLE_SCHEMAS[table_name])
+    return frames
+
+
+def _daily_delta_table(
+    current: pd.DataFrame,
+    previous: pd.DataFrame,
+    *,
+    key_columns: list[str],
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, int]]:
+    current_normalized = current.copy()
+    previous_normalized = previous.copy()
+    for key_column in key_columns:
+        if key_column in current_normalized.columns:
+            current_normalized[key_column] = current_normalized[key_column].astype("string").str.strip()
+        if key_column in previous_normalized.columns:
+            previous_normalized[key_column] = previous_normalized[key_column].astype("string").str.strip()
+
+    current_signature = _row_signature_frame(current_normalized, key_columns=key_columns)
+    previous_signature = _row_signature_frame(previous_normalized, key_columns=key_columns)
+    merged = current_signature.merge(
+        previous_signature,
+        on=key_columns,
+        how="outer",
+        suffixes=("_current", "_previous"),
+        indicator=True,
+    )
+
+    new_or_updated_keys = merged.loc[
+        merged["_merge"].eq("left_only")
+        | (
+            merged["_merge"].eq("both")
+            & merged["__signature_current"].ne(merged["__signature_previous"])
+        ),
+        key_columns,
+    ].drop_duplicates()
+    removed_keys = merged.loc[merged["_merge"].eq("right_only"), key_columns].drop_duplicates()
+
+    changed_rows = (
+        current_normalized.merge(new_or_updated_keys, on=key_columns, how="inner")
+        if not new_or_updated_keys.empty
+        else current_normalized.iloc[0:0].copy()
+    )
+    stats = {
+        "current_rows": int(len(current_normalized)),
+        "previous_rows": int(len(previous_normalized)),
+        "changed_rows": int(len(changed_rows)),
+        "removed_rows": int(len(removed_keys)),
+        "unchanged_rows": int(
+            max(len(current_signature) - len(new_or_updated_keys), 0)
+        ),
+    }
+    return changed_rows, removed_keys, stats
+
+
+def compute_daily_feature_delta(
+    frames: dict[str, pd.DataFrame],
+    *,
+    mode: RunMode,
+    config: FeatureConfig,
+    source_rows: int,
+    snapshot_date: pd.Timestamp | None,
+) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame], dict[str, object]]:
+    previous_frames = load_feature_state_frames(mode=mode, config=config)
+    changed_frames: dict[str, pd.DataFrame] = {}
+    removed_keys_by_table: dict[str, pd.DataFrame] = {}
+    table_stats: dict[str, object] = {}
+
+    for table_name, frame in frames.items():
+        changed_rows, removed_keys, stats = _daily_delta_table(
+            frame,
+            previous_frames.get(table_name, pd.DataFrame(columns=frame.columns)),
+            key_columns=FEATURE_PRIMARY_KEYS[table_name],
+        )
+        changed_frames[table_name] = changed_rows
+        removed_keys_by_table[table_name] = removed_keys
+        table_stats[table_name] = {
+            **stats,
+            "primary_key": FEATURE_PRIMARY_KEYS[table_name],
+        }
+
+    manifest: dict[str, object] = {
+        "mode": mode,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "source_rows": int(source_rows),
+        "snapshot_date": snapshot_date.date().isoformat() if snapshot_date is not None and not pd.isna(snapshot_date) else None,
+        "tables": table_stats,
+    }
+    return changed_frames, removed_keys_by_table, manifest
+
+
+def persist_daily_feature_delta(
+    changed_frames: dict[str, pd.DataFrame],
+    removed_keys_by_table: dict[str, pd.DataFrame],
+    manifest: dict[str, object],
+    *,
+    mode: RunMode,
+    config: FeatureConfig,
+) -> dict[str, Path]:
+    delta_dir = ensure_directory(config.delta_dir_for_mode(mode))
+    outputs: dict[str, Path] = {
+        "daily_feature_delta_manifest": write_json(manifest, delta_dir / DAILY_DELTA_MANIFEST_FILE),
+    }
+    for table_name, file_name in DAILY_DELTA_OUTPUT_FILES.items():
+        outputs[file_name[:-4]] = write_csv_frame(changed_frames[table_name], delta_dir / file_name)
+        removed_output_name = f"removed_{file_name}"
+        outputs[removed_output_name[:-4]] = write_csv_frame(
+            removed_keys_by_table[table_name],
+            delta_dir / removed_output_name,
+        )
+    return outputs
+
+
+def persist_feature_state(
+    frames: dict[str, pd.DataFrame],
+    manifest: dict[str, object],
+    *,
+    mode: RunMode,
+    config: FeatureConfig,
+) -> dict[str, Path]:
+    state_dir = ensure_directory(config.state_dir_for_mode(mode))
+    outputs: dict[str, Path] = {
+        "feature_state_manifest": write_json(manifest, state_dir / FEATURE_STATE_MANIFEST_FILE),
+    }
+    for table_name, file_name in FEATURE_STATE_OUTPUT_FILES.items():
+        output_path = state_dir / file_name
+        output_path.write_text(
+            json.dumps(frames[table_name].to_dict(orient="records"), indent=2, ensure_ascii=True),
+            encoding="utf-8",
+        )
+        outputs[f"state_{file_name[:-5]}"] = output_path
+    return outputs
+
+
 def write_feature_frames(
     frames: dict[str, pd.DataFrame],
     *,
@@ -665,6 +883,11 @@ def run_feature_pipeline(
     source_frame = load_feature_source_frame(mode, config)
     commodity_sales = _prepare_sales_frame(source_frame, commodity_only=True)
     all_product_sales = _prepare_sales_frame(source_frame, commodity_only=False)
+    snapshot_date = (
+        all_product_sales["sale_date"].max().normalize()
+        if not all_product_sales.empty and "sale_date" in all_product_sales.columns
+        else None
+    )
     embedding_bundle = build_embedding_bundle(all_product_sales) if not all_product_sales.empty else None
     frames = _empty_frames() if commodity_sales.empty and all_product_sales.empty else {
         "client_features": build_client_features(all_product_sales, embedding_bundle=embedding_bundle) if not all_product_sales.empty else pd.DataFrame(columns=CLIENT_FEATURE_COLUMNS),
@@ -673,6 +896,31 @@ def run_feature_pipeline(
     }
     frames, _ = align_feature_tables_to_contract(frames)
     outputs = write_feature_frames(frames, mode=mode, config=config)
+    if mode == "daily":
+        changed_frames, removed_keys_by_table, delta_manifest = compute_daily_feature_delta(
+            frames,
+            mode=mode,
+            config=config,
+            source_rows=len(source_frame),
+            snapshot_date=snapshot_date,
+        )
+        outputs.update(
+            persist_daily_feature_delta(
+                changed_frames,
+                removed_keys_by_table,
+                delta_manifest,
+                mode=mode,
+                config=config,
+            )
+        )
+        outputs.update(
+            persist_feature_state(
+                frames,
+                delta_manifest,
+                mode=mode,
+                config=config,
+            )
+        )
     logger.info(
         "Feature tables built: clients=%s, products=%s, client_products=%s",
         len(frames["client_features"]),

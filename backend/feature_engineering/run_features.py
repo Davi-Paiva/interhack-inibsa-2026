@@ -14,7 +14,10 @@ try:
         CLIENT_PRODUCT_FEATURE_COLUMNS,
         PRODUCT_FEATURE_COLUMNS,
         align_feature_tables_to_contract,
+        compute_daily_feature_delta,
         build_embedding_bundle,
+        persist_daily_feature_delta,
+        persist_feature_state,
         prepare_all_product_feature_source_frame,
         build_client_features,
         build_client_product_features,
@@ -30,7 +33,10 @@ except ImportError:
         CLIENT_PRODUCT_FEATURE_COLUMNS,
         PRODUCT_FEATURE_COLUMNS,
         align_feature_tables_to_contract,
+        compute_daily_feature_delta,
         build_embedding_bundle,
+        persist_daily_feature_delta,
+        persist_feature_state,
         prepare_all_product_feature_source_frame,
         build_client_features,
         build_client_product_features,
@@ -52,7 +58,7 @@ def parse_args() -> argparse.Namespace:
         "--mode",
         choices=("historical", "daily"),
         default="historical",
-        help="Pipeline mode. Both historical and daily materialize the full feature contract.",
+        help="Pipeline mode. Historical prepares training features; daily materializes full serving features plus a delta/state manifest.",
     )
     parser.add_argument(
         "--processed-dir",
@@ -135,12 +141,44 @@ def run_feature_flow(mode: RunMode, config: FeatureConfig) -> dict[str, object]:
 
     logger.info("Feature pipeline stage: save CSV outputs")
     csv_outputs = write_feature_frames(tables, mode=mode, config=config)
+    delta_outputs: dict[str, Path] = {}
+    if mode == "daily":
+        snapshot_date = (
+            all_product_sales["sale_date"].max().normalize()
+            if not all_product_sales.empty and "sale_date" in all_product_sales.columns
+            else None
+        )
+        changed_frames, removed_keys_by_table, delta_manifest = compute_daily_feature_delta(
+            tables,
+            mode=mode,
+            config=config,
+            source_rows=len(source_frame),
+            snapshot_date=snapshot_date,
+        )
+        delta_outputs.update(
+            persist_daily_feature_delta(
+                changed_frames,
+                removed_keys_by_table,
+                delta_manifest,
+                mode=mode,
+                config=config,
+            )
+        )
+        delta_outputs.update(
+            persist_feature_state(
+                tables,
+                delta_manifest,
+                mode=mode,
+                config=config,
+            )
+        )
 
     return {
         "source_rows": len(source_frame),
         "prepared_rows": len(commodity_sales),
         "tables": tables,
         "csv_outputs": csv_outputs,
+        "delta_outputs": delta_outputs,
     }
 
 
@@ -163,6 +201,8 @@ def print_execution_summary(mode: RunMode, result: dict[str, object], config: Fe
     csv_outputs = result["csv_outputs"]
     for artifact_name, output_path in csv_outputs.items():
         print(f"   csv -> {artifact_name}: {output_path}")
+    for artifact_name, output_path in result.get("delta_outputs", {}).items():
+        print(f"   delta -> {artifact_name}: {output_path}")
 
 
 def main() -> None:
