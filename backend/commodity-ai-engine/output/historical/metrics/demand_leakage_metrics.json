@@ -1,28 +1,28 @@
 {
   "rows": 18734,
-  "candidate_count": 74,
-  "candidate_share": 0.00395003736521832,
-  "actionable_count": 39,
-  "actionable_share": 0.002081776449236682,
+  "candidate_count": 65,
+  "candidate_share": 0.00346962741539447,
+  "actionable_count": 30,
+  "actionable_share": 0.0016013664994128324,
   "routed_to_technical_count": 35,
   "routed_to_technical_share": 0.0018682609159816376,
   "score_distribution": {
     "min": 0.0,
-    "mean": 0.006338538461574041,
+    "mean": 0.006183129868661381,
     "median": 0.0,
     "p90": 0.0,
-    "p99": 0.4197647960058273,
+    "p99": 0.41925558010459335,
     "max": 0.5371841797424961
   },
   "risk_bucket_counts": {
-    "high": 225,
-    "low": 50,
-    "medium": 17,
-    "none": 18442
+    "high": 221,
+    "low": 46,
+    "medium": 16,
+    "none": 18451
   },
   "cluster_mix": {
-    "1": 37,
-    "2": 2
+    "1": 24,
+    "2": 6
   },
   "historical_validation": {
     "rows": 664658,
@@ -34,7 +34,7 @@
     "routed_to_technical_share": 0.003127924436326652,
     "score_distribution": {
       "min": 0.0,
-      "mean": 0.006300604983789628,
+      "mean": 0.006300604983789625,
       "median": 0.0,
       "p90": 0.0,
       "p99": 0.41890631764037123,

@@ -1,47 +1,47 @@
 {
-  "source_rows": 39,
-  "prediction_rows": 39,
+  "source_rows": 30,
+  "prediction_rows": 30,
   "probability_distribution": {
-    "min": 0.2393478934209034,
-    "mean": 0.4979058334746295,
-    "median": 0.5226922069865864,
-    "p90": 0.7056122751365099,
-    "max": 0.7640355287489325
+    "min": 0.20786147689062298,
+    "mean": 0.5285596418903015,
+    "median": 0.5639799960682181,
+    "p90": 0.7102225444144935,
+    "max": 0.7508873857025885
   },
   "days_until_purchase_distribution": {
     "min": 1,
-    "mean": 9.692307692307692,
-    "median": 1.0,
-    "p90": 34.400000000000006,
+    "mean": 12.766666666666667,
+    "median": 5.5,
+    "p90": 36.300000000000004,
     "max": 52
   },
   "priority_band_counts": {
-    "critical": 3,
+    "critical": 2,
     "high": 9,
-    "low": 9,
-    "medium": 18
+    "low": 4,
+    "medium": 15
   },
-  "due_within_7d": 26,
-  "due_within_14d": 30,
-  "due_within_30d": 33,
-  "actionable_capture_rows": 39,
+  "due_within_7d": 15,
+  "due_within_14d": 21,
+  "due_within_30d": 24,
+  "actionable_capture_rows": 30,
   "coherent_contact_windows_share": 1.0,
   "historical_validation_proxy": {
-    "rows": 39,
-    "interval_mae_days": 13.728705937967975,
-    "interval_median_ae_days": 10.095238095238095,
-    "interval_within_7d": 0.46153846153846156,
-    "interval_within_14d": 0.5641025641025641,
-    "interval_within_30d": 0.9230769230769231,
-    "due_soon_7d_rate": 0.7692307692307693,
+    "rows": 30,
+    "interval_mae_days": 13.707459877503045,
+    "interval_median_ae_days": 9.069044234808683,
+    "interval_within_7d": 0.4666666666666667,
+    "interval_within_14d": 0.5666666666666667,
+    "interval_within_30d": 0.9,
+    "due_soon_7d_rate": 0.7,
     "probability_ranking": {
-      "base_rate": 0.7692307692307693,
+      "base_rate": 0.7,
       "precision_at_10.0%": 1.0,
-      "lift_at_10.0%": 1.2999999999999998,
-      "precision_at_25.0%": 0.8888888888888888,
-      "lift_at_25.0%": 1.1555555555555554,
-      "precision_at_50.0%": 0.7368421052631579,
-      "lift_at_50.0%": 0.9578947368421051
+      "lift_at_10.0%": 1.4285714285714286,
+      "precision_at_25.0%": 0.8571428571428571,
+      "lift_at_25.0%": 1.2244897959183674,
+      "precision_at_50.0%": 0.8,
+      "lift_at_50.0%": 1.142857142857143
     }
   }
 }

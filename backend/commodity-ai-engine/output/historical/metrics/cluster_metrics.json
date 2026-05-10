@@ -1,19 +1,19 @@
 {
   "n_clusters": 3,
-  "rows": 6364,
-  "inertia": 41703.12769935941,
-  "silhouette_score": 0.30944629518000677,
-  "davies_bouldin_score": 1.35289184828355,
-  "calinski_harabasz_score": 1673.02315339337,
+  "rows": 8013,
+  "inertia": 53702.558536661745,
+  "silhouette_score": 0.3299899009688873,
+  "davies_bouldin_score": 1.3242590433009678,
+  "calinski_harabasz_score": 1970.8919580749916,
   "cluster_counts": {
-    "0": 1270,
-    "1": 1046,
-    "2": 4048
+    "0": 1732,
+    "1": 1025,
+    "2": 5256
   },
   "cluster_labels": {
     "0": "null_or_marginal",
     "1": "loyal",
     "2": "promiscuous"
   },
-  "min_cluster_share": 0.1643620364550597
+  "min_cluster_share": 0.1279171346561837
 }

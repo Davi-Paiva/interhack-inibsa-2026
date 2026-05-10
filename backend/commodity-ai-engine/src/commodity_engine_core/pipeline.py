@@ -77,8 +77,8 @@ def _build_snapshot_dates(sales: pd.DataFrame) -> List[pd.Timestamp]:
     if sales.empty:
         return []
     max_sale_date = sales["sale_date"].max().normalize()
-    first_month_end = sales["sale_date"].min().to_period("M").to_timestamp("M")
-    all_month_ends = pd.date_range(first_month_end, max_sale_date, freq="M")
+    first_month_end = sales["sale_date"].min().to_period("M").to_timestamp(how="end").normalize()
+    all_month_ends = pd.date_range(first_month_end, max_sale_date, freq="ME")
     snapshot_dates = [
         ts.normalize()
         for ts in all_month_ends
