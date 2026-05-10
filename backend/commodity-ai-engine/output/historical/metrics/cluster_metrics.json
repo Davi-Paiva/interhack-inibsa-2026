@@ -11,9 +11,11 @@
     "2": 5256
   },
   "cluster_labels": {
-    "0": "null_or_marginal",
-    "1": "loyal",
-    "2": "promiscuous"
+    "0": "cluster_0",
+    "1": "cluster_1",
+    "2": "cluster_2",
+    "3": "cluster_3",
+    "4": "cluster_4"
   },
   "min_cluster_share": 0.1279171346561837
 }

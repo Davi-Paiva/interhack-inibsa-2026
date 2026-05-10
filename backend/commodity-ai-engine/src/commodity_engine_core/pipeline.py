@@ -219,7 +219,7 @@ def run_customer_clustering(mode: str, project_root: Optional[Path] = None) -> P
         client_df = clusterer.load_inputs(features_dir)
         matrix = clusterer.prepare_matrix(client_df)
     else:
-        clusterer = CommodityCustomerCluster()
+        clusterer = CommodityCustomerCluster(n_clusters=5, random_state=42)
         client_df = clusterer.load_inputs(features_dir)
         matrix = clusterer.prepare_matrix(client_df)
         clusterer.fit(matrix, raw_df=client_df)
