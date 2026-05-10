@@ -5,6 +5,7 @@ This service orchestrates the complete technical product risk analysis pipeline,
 coordinating drift detection, inactivity analysis, and risk scoring to produce
 comprehensive abandonment risk assessments for client-product relationships.
 """
+from __future__ import annotations
 
 import logging
 from typing import Any, List, Optional
@@ -57,6 +58,11 @@ class TechnicalRiskAssessment:
     peer_drift_score: float
     potential_gap: float
     drift_signal_count: int
+    peer_avg_growth: float = 0.0
+    peer_avg_similarity: float = 0.0
+    peer_group_type: str = "product_average"
+    client_product_embedding_cosine: float = 0.0
+    client_product_preference_gap: float = 0.0
     drift_signals: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -134,6 +140,15 @@ class TechnicalProductEngine:
             peer_drift_score=risk_assessment.peer_drift_score,
             potential_gap=potential_gap,
             drift_signal_count=len(drift_signals),
+            peer_avg_growth=float(getattr(peer_metrics, "peer_avg_growth", 0.0) or 0.0),
+            peer_avg_similarity=float(getattr(peer_metrics, "peer_avg_similarity", 0.0) or 0.0),
+            peer_group_type=str(getattr(peer_metrics, "peer_group_type", "product_average") or "product_average"),
+            client_product_embedding_cosine=float(
+                getattr(context.features, "client_product_embedding_cosine", 0.0) or 0.0
+            ),
+            client_product_preference_gap=float(
+                getattr(context.features, "client_product_preference_gap", 0.0) or 0.0
+            ),
             drift_signals=[
                 {
                     "signal_type": signal.signal_type.value,
@@ -180,7 +195,10 @@ class TechnicalProductEngine:
             # Get peer metrics for this product
             peer_metrics = None
             if peer_metrics_map is not None:
-                peer_metrics = peer_metrics_map.get(context.product_id)
+                peer_metrics = (
+                    peer_metrics_map.get((context.client_id, context.product_id))
+                    or peer_metrics_map.get(context.product_id)
+                )
             
             # Analyze relationship
             try:

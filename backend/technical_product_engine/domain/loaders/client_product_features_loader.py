@@ -1,9 +1,16 @@
+from __future__ import annotations
+
 """Client-product features data loader."""
 import csv
 from pathlib import Path
 from typing import List
 
 from ..models import ClientProductFeatures
+
+
+def _float_or_zero(row: dict[str, str], key: str) -> float:
+    value = row.get(key, "")
+    return float(value) if value not in ("", None) else 0.0
 
 
 def load_client_product_features(file_path: str | Path) -> List[ClientProductFeatures]:
@@ -31,7 +38,10 @@ def load_client_product_features(file_path: str | Path) -> List[ClientProductFea
                 client_product_return_rate=float(row['client_product_return_rate']),
                 campaign_lift_product=float(row['campaign_lift_product']),
                 client_product_total_revenue=float(row['client_product_total_revenue']),
-                client_product_total_orders=int(row['client_product_total_orders'])
+                client_product_total_orders=int(row['client_product_total_orders']),
+                client_product_embedding_score=_float_or_zero(row, 'client_product_embedding_score'),
+                client_product_embedding_cosine=_float_or_zero(row, 'client_product_embedding_cosine'),
+                client_product_preference_gap=_float_or_zero(row, 'client_product_preference_gap'),
             )
             features.append(feature)
     

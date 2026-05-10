@@ -4,6 +4,8 @@ Main drift detection orchestrator.
 This module coordinates various drift detection mechanisms
 to identify changes in customer behavior and patterns.
 """
+from __future__ import annotations
+
 from typing import List, Optional
 
 from ..domain.models import ClientProductContext
@@ -85,4 +87,3 @@ class DriftDetector:
             results[key] = signals
         
         return results
-

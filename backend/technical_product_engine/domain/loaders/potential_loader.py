@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Potential data loader."""
 import csv
 from pathlib import Path

@@ -1,9 +1,16 @@
+from __future__ import annotations
+
 """Client data loader."""
 import csv
 from pathlib import Path
 from typing import List
 
 from ..models import Client
+
+
+def _float_or_zero(row: dict[str, str], key: str) -> float:
+    value = row.get(key, "")
+    return float(value) if value not in ("", None) else 0.0
 
 
 def load_clients(file_path: str | Path) -> List[Client]:
@@ -33,7 +40,11 @@ def load_clients(file_path: str | Path) -> List[Client]:
                 is_active_customer=row['is_active_customer'].lower() in ('true', '1', 'yes'),
                 return_rate_30d=float(row['return_rate_30d']),
                 campaign_lift=float(row['campaign_lift']),
-                coefficient_variation_30d=float(row['coefficient_variation_30d'])
+                coefficient_variation_30d=float(row['coefficient_variation_30d']),
+                client_embedding_0=_float_or_zero(row, 'client_embedding_0'),
+                client_embedding_1=_float_or_zero(row, 'client_embedding_1'),
+                client_embedding_2=_float_or_zero(row, 'client_embedding_2'),
+                client_embedding_3=_float_or_zero(row, 'client_embedding_3'),
             )
             clients.append(client)
     

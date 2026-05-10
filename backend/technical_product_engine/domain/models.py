@@ -34,6 +34,10 @@ class Client:
     return_rate_30d: float
     campaign_lift: float
     coefficient_variation_30d: float
+    client_embedding_0: float = 0.0
+    client_embedding_1: float = 0.0
+    client_embedding_2: float = 0.0
+    client_embedding_3: float = 0.0
 
 
 @dataclass
@@ -99,6 +103,9 @@ class ClientProductFeatures:
     campaign_lift_product: float
     client_product_total_revenue: float
     client_product_total_orders: int
+    client_product_embedding_score: float = 0.0
+    client_product_embedding_cosine: float = 0.0
+    client_product_preference_gap: float = 0.0
 
 
 @dataclass
@@ -125,5 +132,4 @@ class ClientProductContext:
         """Initialize default values for mutable fields."""
         if self.sales_history is None:
             self.sales_history = []
-
 

@@ -46,9 +46,16 @@ class CommodityCustomerCluster:
     )
     _model_file_name = "customer_clustering.pkl"
 
-    def __init__(self, n_clusters: int = 3, random_state: int = 42):
+    def __init__(
+        self,
+        n_clusters: int = 3,
+        random_state: int = 42,
+        *,
+        use_embedding_features: bool = False,
+    ):
         self.n_clusters = n_clusters
         self.random_state = random_state
+        self.use_embedding_features = bool(use_embedding_features)
         self.kmeans = KMeans(n_clusters=n_clusters, random_state=random_state, n_init=10)
         self.scaler = StandardScaler()
 
@@ -81,7 +88,7 @@ class CommodityCustomerCluster:
             missing = ", ".join(missing_in_schema)
             raise ValueError(f"Excel schema missing required clustering columns: {missing}")
 
-        missing_in_df = sorted(set(self._cluster_feature_columns) - set(df.columns))
+        missing_in_df = sorted(set(self._feature_columns(df)) - set(df.columns))
         if missing_in_df:
             missing = ", ".join(missing_in_df)
             raise ValueError(f"Input data missing required clustering columns: {missing}")
@@ -93,12 +100,13 @@ class CommodityCustomerCluster:
     def prepare_matrix(self, df: pd.DataFrame) -> pd.DataFrame:
         """Prepare standardized numeric feature matrix for clustering."""
         self.validate_schema(df)
-        features = self._coerce_and_fill(df.loc[:, self._cluster_feature_columns])
+        feature_columns = self._feature_columns(df)
+        features = self._coerce_and_fill(df.loc[:, feature_columns], feature_columns=feature_columns)
         if hasattr(self.scaler, "mean_"):
             scaled = self.scaler.transform(features)
         else:
             scaled = self.scaler.fit_transform(features)
-        return pd.DataFrame(scaled, columns=self._cluster_feature_columns, index=df.index)
+        return pd.DataFrame(scaled, columns=feature_columns, index=df.index)
 
     def fit(self, X: pd.DataFrame, raw_df: Optional[pd.DataFrame] = None) -> None:
         """Fit KMeans clustering on a prepared feature matrix."""
@@ -122,9 +130,10 @@ class CommodityCustomerCluster:
         if raw_df.empty:
             raise ValueError("Cannot build profiles from empty data")
         self.validate_schema(raw_df)
-        profiles_source = self._coerce_and_fill(raw_df.loc[:, self._cluster_feature_columns])
+        feature_columns = self._feature_columns(raw_df)
+        profiles_source = self._coerce_and_fill(raw_df.loc[:, feature_columns], feature_columns=feature_columns)
         profiles_source["cluster_id"] = labels
-        means = profiles_source.groupby("cluster_id")[list(self._cluster_feature_columns)].mean()
+        means = profiles_source.groupby("cluster_id")[feature_columns].mean()
         counts = profiles_source.groupby("cluster_id").size().rename("count")
         profiles = means.join(counts).reset_index().sort_values("cluster_id").reset_index(drop=True)
         profiles["cluster_name"] = profiles["cluster_id"].map(self.get_cluster_name)
@@ -138,6 +147,8 @@ class CommodityCustomerCluster:
         return {
             "n_clusters": int(self.n_clusters),
             "rows": int(len(X)),
+            "use_embedding_features": bool(self.use_embedding_features),
+            "feature_count": int(len(X.columns)),
             "inertia": float(self.kmeans.inertia_),
             "silhouette_score": float(silhouette_score(X, labels)) if len(counts) > 1 else 0.0,
             "davies_bouldin_score": float(davies_bouldin_score(X, labels)) if len(counts) > 1 else 0.0,
@@ -175,6 +186,7 @@ class CommodityCustomerCluster:
         artifact = {
             "n_clusters": self.n_clusters,
             "random_state": self.random_state,
+            "use_embedding_features": self.use_embedding_features,
             "kmeans": self.kmeans,
             "scaler": self.scaler,
         }
@@ -189,6 +201,7 @@ class CommodityCustomerCluster:
         clusterer = cls(
             n_clusters=int(artifact["n_clusters"]),
             random_state=int(artifact["random_state"]),
+            use_embedding_features=bool(artifact.get("use_embedding_features", False)),
         )
         clusterer.kmeans = artifact["kmeans"]
         clusterer.scaler = artifact["scaler"]
@@ -222,16 +235,25 @@ class CommodityCustomerCluster:
             raise ValueError("Schema sheet must include a 'Column' header")
         return schema_df["Column"].dropna().astype(str).str.strip().tolist()
 
-    def _coerce_and_fill(self, features: pd.DataFrame) -> pd.DataFrame:
+    def _feature_columns(self, df: pd.DataFrame) -> list[str]:
+        columns = list(self._cluster_feature_columns)
+        if self.use_embedding_features:
+            columns.extend(
+                sorted(column for column in df.columns if str(column).startswith("client_embedding_"))
+            )
+        return list(dict.fromkeys(columns))
+
+    def _coerce_and_fill(self, features: pd.DataFrame, *, feature_columns: list[str]) -> pd.DataFrame:
         filled = features.copy()
-        for column in self._cluster_feature_columns:
+        for column in feature_columns:
             if column == "is_active_customer":
                 filled[column] = _normalize_boolean(filled[column]).astype(int)
             else:
                 filled[column] = pd.to_numeric(filled[column], errors="coerce")
         for column in self._zero_fill_columns:
-            filled[column] = filled[column].fillna(0.0)
-        for column in self._cluster_feature_columns:
+            if column in filled.columns:
+                filled[column] = filled[column].fillna(0.0)
+        for column in feature_columns:
             if column in self._zero_fill_columns:
                 continue
             median_value = filled[column].median()
@@ -248,7 +270,8 @@ class CommodityCustomerCluster:
         return None
 
     def _remap_cluster_order(self, raw_df: pd.DataFrame, labels: np.ndarray) -> None:
-        profiles_source = self._coerce_and_fill(raw_df.loc[:, self._cluster_feature_columns])
+        feature_columns = self._feature_columns(raw_df)
+        profiles_source = self._coerce_and_fill(raw_df.loc[:, feature_columns], feature_columns=feature_columns)
         profiles_source["cluster_id"] = labels
         ordering = (
             profiles_source.groupby("cluster_id")
@@ -314,4 +337,3 @@ class CommodityCustomerCluster:
         else:
             scaled = (numeric - numeric.min()) / (numeric.max() - numeric.min())
         return scaled if high_is_good else 1.0 - scaled
-

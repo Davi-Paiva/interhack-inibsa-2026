@@ -186,10 +186,14 @@ class NextPurchasePredictor:
         frequency = pd.to_numeric(df["client_product_frequency"], errors="coerce").fillna(0.0).clip(lower=1e-3)
         variability = pd.to_numeric(df["coefficient_variation_30d"], errors="coerce").fillna(0.0).clip(lower=0.0, upper=2.0)
         growth = pd.to_numeric(df["sales_growth_30d"], errors="coerce").fillna(0.0).clip(-1.0, 1.0)
+        affinity = self._optional_numeric_series(df, "client_product_embedding_cosine").clip(-1.0, 1.0)
         base_interval = 30.0 / frequency
         variability_adjustment = 1.0 + (0.5 * variability)
         growth_adjustment = 1.0 - (0.15 * growth)
-        interval_days = (base_interval * variability_adjustment * growth_adjustment).clip(lower=3.0, upper=120.0)
+        affinity_adjustment = 1.0 - (0.10 * affinity)
+        interval_days = (
+            base_interval * variability_adjustment * growth_adjustment * affinity_adjustment
+        ).clip(lower=3.0, upper=120.0)
         return pd.Series(interval_days, index=df.index, dtype=float)
 
     def estimate_probability(self, df: pd.DataFrame) -> pd.Series:
@@ -202,12 +206,20 @@ class NextPurchasePredictor:
         volatility_penalty = 1.0 / (
             1.0 + pd.to_numeric(df["coefficient_variation_30d"], errors="coerce").fillna(0.0).clip(lower=0.0)
         )
+        affinity = (self._optional_numeric_series(df, "client_product_embedding_cosine").clip(-1.0, 1.0) + 1.0) / 2.0
         probability = (
-            0.50 * recency_fit
-            + 0.35 * capture_priority
+            0.45 * recency_fit
+            + 0.30 * capture_priority
             + 0.15 * volatility_penalty
+            + 0.10 * affinity
         ).clip(self.min_probability, 1.0)
         return pd.Series(probability, index=df.index, dtype=float)
+
+    @staticmethod
+    def _optional_numeric_series(df: pd.DataFrame, column: str) -> pd.Series:
+        if column not in df.columns:
+            return pd.Series(0.0, index=df.index, dtype=float)
+        return pd.to_numeric(df[column], errors="coerce").fillna(0.0)
 
     def build_predictions(self, df: pd.DataFrame, reference_date: pd.Timestamp) -> pd.DataFrame:
         self.validate_schema(df)
@@ -284,6 +296,9 @@ class NextPurchasePredictor:
             product_key,
             "capture_score",
             "priority_band",
+            "client_product_embedding_score",
+            "client_product_embedding_cosine",
+            "client_product_preference_gap",
             "estimated_interval_days",
             "days_until_expected_purchase",
             "expected_next_purchase_date",
@@ -567,5 +582,3 @@ class NextPurchasePredictor:
             metrics[f"precision_at_{label_key}"] = precision
             metrics[f"lift_at_{label_key}"] = float(precision / base_rate) if base_rate > 0 else 0.0
         return metrics
-
-

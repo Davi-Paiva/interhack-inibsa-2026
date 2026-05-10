@@ -14,6 +14,7 @@ try:
         CLIENT_PRODUCT_FEATURE_COLUMNS,
         PRODUCT_FEATURE_COLUMNS,
         align_feature_tables_to_contract,
+        build_embedding_bundle,
         prepare_all_product_feature_source_frame,
         build_client_features,
         build_client_product_features,
@@ -29,6 +30,7 @@ except ImportError:
         CLIENT_PRODUCT_FEATURE_COLUMNS,
         PRODUCT_FEATURE_COLUMNS,
         align_feature_tables_to_contract,
+        build_embedding_bundle,
         prepare_all_product_feature_source_frame,
         build_client_features,
         build_client_product_features,
@@ -90,10 +92,14 @@ def build_config(args: argparse.Namespace) -> FeatureConfig:
 
 
 def build_feature_tables(commodity_sales, all_product_sales) -> dict[str, object]:
+    embedding_bundle = build_embedding_bundle(all_product_sales) if not all_product_sales.empty else None
     return {
-        "client_features": build_client_features(all_product_sales),
-        "product_features": build_product_features(all_product_sales),
-        "client_product_features": build_client_product_features(all_product_sales),
+        "client_features": build_client_features(all_product_sales, embedding_bundle=embedding_bundle),
+        "product_features": build_product_features(all_product_sales, embedding_bundle=embedding_bundle),
+        "client_product_features": build_client_product_features(
+            all_product_sales,
+            embedding_bundle=embedding_bundle,
+        ),
     }
 
 

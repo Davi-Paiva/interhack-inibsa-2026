@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Sales enriched data loader."""
 import csv
 from datetime import datetime

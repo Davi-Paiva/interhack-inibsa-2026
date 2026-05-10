@@ -4,6 +4,8 @@ Main entry point for the technical product engine.
 This module orchestrates the complete technical product risk analysis pipeline,
 from data loading through risk assessment and final output generation.
 """
+from __future__ import annotations
+
 import argparse
 import csv
 import json
@@ -76,6 +78,11 @@ def export_assessments_to_csv(assessments, output_path: Path):
         'peer_drift_score',
         'potential_gap',
         'drift_signal_count',
+        'peer_avg_growth',
+        'peer_avg_similarity',
+        'peer_group_type',
+        'client_product_embedding_cosine',
+        'client_product_preference_gap',
     ]
     
     with open(output_path, 'w', newline='') as csvfile:

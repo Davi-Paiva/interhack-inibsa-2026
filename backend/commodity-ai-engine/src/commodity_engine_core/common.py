@@ -43,6 +43,7 @@ if str(FEATURE_ENGINEERING_DIR) not in sys.path:
 try:
     from config import FeatureConfig
     from features import (
+        build_embedding_bundle,
         build_client_features,
         build_client_product_features,
         build_product_features,

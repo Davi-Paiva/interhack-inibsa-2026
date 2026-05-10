@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Campaign data loader."""
 import csv
 from datetime import datetime

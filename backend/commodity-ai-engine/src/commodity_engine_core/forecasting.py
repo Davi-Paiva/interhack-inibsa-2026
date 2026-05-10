@@ -75,9 +75,15 @@ class DemandForecaster:
     )
     _model_file_name = "consumption_forecaster.pkl"
 
-    def __init__(self, model_params: Optional[Dict] = None):
+    def __init__(
+        self,
+        model_params: Optional[Dict] = None,
+        *,
+        use_embedding_features: bool = False,
+    ):
         self.model = None
         self.model_backend = "lightgbm" if lgb is not None else "sklearn"
+        self.use_embedding_features = bool(use_embedding_features)
         self.feature_names: List[str] = []
         self.raw_feature_columns: List[str] = []
         self.feature_dtypes: Dict[str, str] = {}
@@ -428,6 +434,7 @@ class DemandForecaster:
             "model_backend": self.model_backend,
             "feature_names": self.feature_names,
             "raw_feature_columns": self.raw_feature_columns,
+            "use_embedding_features": self.use_embedding_features,
             "feature_dtypes": self.feature_dtypes,
             "categorical_levels": self.categorical_levels,
             "numeric_fill_values": self.numeric_fill_values,
@@ -450,7 +457,10 @@ class DemandForecaster:
     def load_model(cls, model_path: Path) -> "DemandForecaster":
         """Restore a trained forecasting artifact for inference-only runs."""
         artifact = _read_pickle(Path(model_path))
-        forecaster = cls(model_params=artifact.get("model_params"))
+        forecaster = cls(
+            model_params=artifact.get("model_params"),
+            use_embedding_features=bool(artifact.get("use_embedding_features", False)),
+        )
         forecaster.model = artifact["model"]
         forecaster.model_backend = artifact["model_backend"]
         forecaster.feature_names = list(artifact["feature_names"])
@@ -609,7 +619,9 @@ class DemandForecaster:
         feature_columns = [
             column
             for column in df.columns
-            if column not in excluded_columns and not column.endswith("_id")
+            if column not in excluded_columns
+            and not column.endswith("_id")
+            and self._should_include_feature(column)
         ]
         feature_columns.append("cluster_id")
         feature_columns = list(dict.fromkeys(feature_columns))
@@ -685,6 +697,16 @@ class DemandForecaster:
             return fallback * -1
         return pd.Series(np.arange(len(X)), index=X.index)
 
+    def _should_include_feature(self, column: str) -> bool:
+        if self.use_embedding_features:
+            return True
+        return not (
+            column.startswith("client_embedding_")
+            or column.startswith("product_embedding_")
+            or column.startswith("client_product_embedding_")
+            or column == "client_product_preference_gap"
+        )
+
     @staticmethod
     def _time_aware_split_indices(order: pd.Series, total_rows: int) -> Tuple[np.ndarray, np.ndarray]:
         if total_rows < 2:
@@ -707,4 +729,3 @@ class DemandForecaster:
             return (parsed + pd.Timedelta(days=30)).dt.date.astype("string")
         fallback_date = pd.Timestamp.utcnow().date().isoformat()
         return pd.Series([fallback_date] * len(base_df), index=base_df.index, dtype="string")
-

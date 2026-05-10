@@ -8,9 +8,23 @@ import pandas as pd
 
 try:
     from .config import FeatureConfig, RunMode
+    from .embeddings import (
+        CLIENT_EMBEDDING_COLUMNS,
+        CLIENT_PRODUCT_EMBEDDING_COLUMNS,
+        PRODUCT_EMBEDDING_COLUMNS,
+        EmbeddingFeatureBundle,
+        build_embedding_feature_bundle,
+    )
     from .utils import ensure_directory, read_csv_frame, write_csv_frame
 except (ImportError, ValueError):
     from config import FeatureConfig, RunMode
+    from embeddings import (
+        CLIENT_EMBEDDING_COLUMNS,
+        CLIENT_PRODUCT_EMBEDDING_COLUMNS,
+        PRODUCT_EMBEDDING_COLUMNS,
+        EmbeddingFeatureBundle,
+        build_embedding_feature_bundle,
+    )
     from utils import ensure_directory, read_csv_frame, write_csv_frame
 
 
@@ -66,6 +80,7 @@ CLIENT_FEATURE_COLUMNS = [
     "return_rate_30d",
     "campaign_lift",
     "coefficient_variation_30d",
+    *CLIENT_EMBEDDING_COLUMNS,
 ]
 PRODUCT_FEATURE_COLUMNS = [
     "product_id",
@@ -79,6 +94,7 @@ PRODUCT_FEATURE_COLUMNS = [
     "product_growth_30d",
     "product_return_rate",
     "product_customer_count",
+    *PRODUCT_EMBEDDING_COLUMNS,
 ]
 CLIENT_PRODUCT_FEATURE_COLUMNS = [
     "client_id",
@@ -92,6 +108,7 @@ CLIENT_PRODUCT_FEATURE_COLUMNS = [
     "campaign_lift_product",
     "client_product_total_revenue",
     "client_product_total_orders",
+    *CLIENT_PRODUCT_EMBEDDING_COLUMNS,
 ]
 FEATURE_TABLE_SCHEMAS = {
     "client_features": CLIENT_FEATURE_COLUMNS,
@@ -290,6 +307,10 @@ def prepare_all_product_feature_source_frame(source_frame: pd.DataFrame) -> pd.D
     return _prepare_sales_frame(source_frame, commodity_only=False)
 
 
+def build_embedding_bundle(sales: pd.DataFrame) -> EmbeddingFeatureBundle:
+    return build_embedding_feature_bundle(sales)
+
+
 def _build_order_frame(sales: pd.DataFrame, group_columns: list[str]) -> pd.DataFrame:
     aggregations: dict[str, tuple[str, str]] = {
         "sale_date": ("sale_date", "max"),
@@ -404,11 +425,16 @@ def _finalize_feature_table(features: pd.DataFrame, output_columns: list[str], s
     return table.sort_values(sort_column, ascending=False).reset_index(drop=True)
 
 
-def build_client_features(sales: pd.DataFrame) -> pd.DataFrame:
+def build_client_features(
+    sales: pd.DataFrame,
+    *,
+    embedding_bundle: EmbeddingFeatureBundle | None = None,
+) -> pd.DataFrame:
     group_columns = ["client_id"]
     reference_date = sales["sale_date"].max().normalize()
     order_frame = _build_order_frame(sales, group_columns)
     daily_frame = _build_daily_order_frame(order_frame, group_columns)
+    embedding_bundle = embedding_bundle or build_embedding_bundle(sales)
 
     base = (
         order_frame.groupby(group_columns, dropna=False)
@@ -447,10 +473,15 @@ def build_client_features(sales: pd.DataFrame) -> pd.DataFrame:
         _safe_ratio(features["daily_revenue_std_30d"].fillna(0.0), features["daily_revenue_mean_30d"].fillna(0.0)),
         clip_range=COEFFICIENT_VARIATION_CLIP_RANGE,
     )
+    features = features.merge(embedding_bundle.client_features, on="client_id", how="left")
     return _finalize_feature_table(features, CLIENT_FEATURE_COLUMNS, "customer_total_revenue")
 
 
-def build_product_features(sales: pd.DataFrame) -> pd.DataFrame:
+def build_product_features(
+    sales: pd.DataFrame,
+    *,
+    embedding_bundle: EmbeddingFeatureBundle | None = None,
+) -> pd.DataFrame:
     group_columns = ["product_id"]
     reference_date = sales["sale_date"].max().normalize()
     current_start = reference_date - pd.Timedelta(days=29)
@@ -459,6 +490,7 @@ def build_product_features(sales: pd.DataFrame) -> pd.DataFrame:
 
     order_frame = _build_order_frame(sales, group_columns)
     daily_frame = _build_daily_order_frame(order_frame, group_columns)
+    embedding_bundle = embedding_bundle or build_embedding_bundle(sales)
     base = (
         order_frame.groupby(group_columns, dropna=False)
         .agg(
@@ -501,10 +533,15 @@ def build_product_features(sales: pd.DataFrame) -> pd.DataFrame:
         lower_bound=0.0,
         upper_bound=1.0,
     )
+    features = features.merge(embedding_bundle.product_features, on="product_id", how="left")
     return _finalize_feature_table(features, PRODUCT_FEATURE_COLUMNS, "product_total_revenue")
 
 
-def build_client_product_features(sales: pd.DataFrame) -> pd.DataFrame:
+def build_client_product_features(
+    sales: pd.DataFrame,
+    *,
+    embedding_bundle: EmbeddingFeatureBundle | None = None,
+) -> pd.DataFrame:
     group_columns = ["client_id", "product_id"]
     reference_date = sales["sale_date"].max().normalize()
     current_start = reference_date - pd.Timedelta(days=29)
@@ -513,6 +550,7 @@ def build_client_product_features(sales: pd.DataFrame) -> pd.DataFrame:
 
     order_frame = _build_order_frame(sales, group_columns)
     daily_frame = _build_daily_order_frame(order_frame, group_columns)
+    embedding_bundle = embedding_bundle or build_embedding_bundle(sales)
     base = (
         order_frame.groupby(group_columns, dropna=False)
         .agg(
@@ -553,6 +591,11 @@ def build_client_product_features(sales: pd.DataFrame) -> pd.DataFrame:
         clip_range=(0.0, 1.0),
         lower_bound=0.0,
         upper_bound=1.0,
+    )
+    features = features.merge(
+        embedding_bundle.client_product_features,
+        on=["client_id", "product_id"],
+        how="left",
     )
     return _finalize_feature_table(features, CLIENT_PRODUCT_FEATURE_COLUMNS, "client_product_total_revenue")
 
@@ -622,10 +665,11 @@ def run_feature_pipeline(
     source_frame = load_feature_source_frame(mode, config)
     commodity_sales = _prepare_sales_frame(source_frame, commodity_only=True)
     all_product_sales = _prepare_sales_frame(source_frame, commodity_only=False)
+    embedding_bundle = build_embedding_bundle(all_product_sales) if not all_product_sales.empty else None
     frames = _empty_frames() if commodity_sales.empty and all_product_sales.empty else {
-        "client_features": build_client_features(all_product_sales) if not all_product_sales.empty else pd.DataFrame(columns=CLIENT_FEATURE_COLUMNS),
-        "product_features": build_product_features(all_product_sales) if not all_product_sales.empty else pd.DataFrame(columns=PRODUCT_FEATURE_COLUMNS),
-        "client_product_features": build_client_product_features(all_product_sales) if not all_product_sales.empty else pd.DataFrame(columns=CLIENT_PRODUCT_FEATURE_COLUMNS),
+        "client_features": build_client_features(all_product_sales, embedding_bundle=embedding_bundle) if not all_product_sales.empty else pd.DataFrame(columns=CLIENT_FEATURE_COLUMNS),
+        "product_features": build_product_features(all_product_sales, embedding_bundle=embedding_bundle) if not all_product_sales.empty else pd.DataFrame(columns=PRODUCT_FEATURE_COLUMNS),
+        "client_product_features": build_client_product_features(all_product_sales, embedding_bundle=embedding_bundle) if not all_product_sales.empty else pd.DataFrame(columns=CLIENT_PRODUCT_FEATURE_COLUMNS),
     }
     frames, _ = align_feature_tables_to_contract(frames)
     outputs = write_feature_frames(frames, mode=mode, config=config)

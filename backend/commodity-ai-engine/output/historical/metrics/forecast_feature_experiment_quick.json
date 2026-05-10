@@ -1,0 +1,33 @@
+{
+  "selected_variant": "baseline",
+  "baseline": {
+    "rmse": 156.69848403940105,
+    "mae": 62.93803057954979,
+    "wmape": 1.4324319320001362,
+    "mape_nonzero": 0.7522918756354197,
+    "r2": 0.19705955695674082,
+    "baseline_rmse": 495.97509628448245,
+    "baseline_mae": 371.45923882819716,
+    "baseline_wmape": 8.454190101506997,
+    "rmse_improvement_vs_baseline": 339.2766122450814,
+    "wmape_improvement_vs_baseline": 7.021758169506861,
+    "validation_snapshot": "2025-10-31",
+    "rows": 18399,
+    "use_embedding_features": false
+  },
+  "embedding_candidate": {
+    "rmse": 157.13418396999964,
+    "mae": 63.19987433939612,
+    "wmape": 1.4383913393623475,
+    "mape_nonzero": 0.755000454226779,
+    "r2": 0.19258819957493767,
+    "baseline_rmse": 495.97509628448245,
+    "baseline_mae": 371.45923882819716,
+    "baseline_wmape": 8.454190101506997,
+    "rmse_improvement_vs_baseline": 338.8409123144828,
+    "wmape_improvement_vs_baseline": 7.01579876214465,
+    "validation_snapshot": "2025-10-31",
+    "rows": 18399,
+    "use_embedding_features": true
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "selected_variant": "embedding_weighted_peers",
+  "baseline": {
+    "rows": 10745,
+    "positive_rate": 0.9000465332712889,
+    "roc_auc": 0.6190993268862138,
+    "precision_at_5pct": 0.7281191806331471,
+    "lift_at_5pct": 0.8089794846348015
+  },
+  "embedding_candidate": {
+    "rows": 10745,
+    "positive_rate": 0.9000465332712889,
+    "roc_auc": 0.6191009154632474,
+    "precision_at_5pct": 0.7299813780260708,
+    "lift_at_5pct": 0.8110484858742768
+  },
+  "snapshot_date": "2025-10-31"
+}

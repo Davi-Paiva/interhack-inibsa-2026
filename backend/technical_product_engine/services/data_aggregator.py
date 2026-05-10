@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Data aggregation service for loading and organizing product data."""
 import logging
 from pathlib import Path
@@ -22,6 +24,36 @@ from ..domain.models import (
 )
 
 logger = logging.getLogger(__name__)
+TECHNICAL_BLOCK_ALIASES = {
+    "Productos Técnicos",
+    "Technical",
+}
+
+
+def _client_embedding_vector(client: Client | None) -> list[float] | None:
+    if client is None:
+        return None
+    values = [
+        float(getattr(client, "client_embedding_0", 0.0) or 0.0),
+        float(getattr(client, "client_embedding_1", 0.0) or 0.0),
+        float(getattr(client, "client_embedding_2", 0.0) or 0.0),
+        float(getattr(client, "client_embedding_3", 0.0) or 0.0),
+    ]
+    if not any(abs(value) > 1e-9 for value in values):
+        return None
+    return values
+
+
+def _cosine_similarity(left: list[float], right: list[float]) -> float:
+    import math
+
+    numerator = sum(left_value * right_value for left_value, right_value in zip(left, right))
+    left_norm = math.sqrt(sum(value * value for value in left))
+    right_norm = math.sqrt(sum(value * value for value in right))
+    denominator = left_norm * right_norm
+    if denominator <= 0:
+        return 0.0
+    return max(0.0, min(1.0, numerator / denominator))
 
 
 class DataAggregator:
@@ -142,7 +174,10 @@ class DataAggregator:
             List of products in the specified analytic block
         """
         logger.info(f"Filtering products by analytic_block: '{analytic_block}'")
-        filtered = [p for p in self.products if p.analytic_block == analytic_block]
+        valid_blocks = {analytic_block}
+        if analytic_block in TECHNICAL_BLOCK_ALIASES:
+            valid_blocks.update(TECHNICAL_BLOCK_ALIASES)
+        filtered = [p for p in self.products if p.analytic_block in valid_blocks]
         logger.info(f"Found {len(filtered)} products in '{analytic_block}' block")
         return filtered
     
@@ -220,10 +255,7 @@ class DataAggregator:
         # Filter features if technical only
         features_to_process = self.client_product_features
         if technical_only:
-            technical_product_ids = {
-                p.product_id for p in self.products 
-                if p.analytic_block == analytic_block
-            }
+            technical_product_ids = {p.product_id for p in self.get_technical_products(analytic_block=analytic_block)}
             logger.info(f"Filtering for {len(technical_product_ids)} products in '{analytic_block}' block")
             features_to_process = [f for f in features_to_process if f.product_id in technical_product_ids]
             logger.info(f"Filtered to {len(features_to_process)} client-product features")
@@ -258,7 +290,7 @@ class DataAggregator:
         logger.info(f"Built {len(contexts)} client-product contexts")
         return contexts
     
-    def compute_peer_metrics(self, contexts: List[ClientProductContext]) -> Dict[str, Any]:
+    def compute_peer_metrics(self, contexts: List[ClientProductContext]) -> Dict[Any, Any]:
         """Compute peer metrics for drift detection.
         
         Calculates average growth rates per product across all clients
@@ -281,7 +313,7 @@ class DataAggregator:
             product_contexts[ctx.product_id].append(ctx)
         
         # Calculate peer metrics for each product
-        peer_metrics = {}
+        peer_metrics: Dict[Any, Any] = {}
         for product_id, product_ctxs in product_contexts.items():
             # Extract growth rates from contexts
             growth_rates = []
@@ -297,11 +329,49 @@ class DataAggregator:
             avg_growth = statistics.mean(growth_rates)
             std_growth = statistics.stdev(growth_rates) if len(growth_rates) > 1 else 0.0
             
-            peer_metrics[product_id] = PeerMetrics(
+            baseline_metric = PeerMetrics(
                 peer_avg_growth=avg_growth,
                 peer_std_growth=std_growth,
-                peer_count=len(growth_rates)
+                peer_count=len(growth_rates),
+                peer_avg_similarity=0.0,
+                peer_group_type="product_average",
             )
-        
+            peer_metrics[product_id] = baseline_metric
+
+            for ctx in product_ctxs:
+                target_vector = _client_embedding_vector(ctx.client)
+                if target_vector is None:
+                    continue
+                weighted_peers = []
+                for peer_ctx in product_ctxs:
+                    if peer_ctx.client_id == ctx.client_id:
+                        continue
+                    peer_vector = _client_embedding_vector(peer_ctx.client)
+                    if peer_vector is None or peer_ctx.features is None:
+                        continue
+                    similarity = _cosine_similarity(target_vector, peer_vector)
+                    if similarity <= 0:
+                        continue
+                    weighted_peers.append((similarity, peer_ctx.features.sales_growth_30d))
+
+                if len(weighted_peers) < 5:
+                    continue
+
+                weighted_peers = sorted(weighted_peers, key=lambda item: item[0], reverse=True)[:25]
+                total_weight = sum(weight for weight, _ in weighted_peers)
+                if total_weight <= 0:
+                    continue
+                weighted_avg = sum(weight * growth for weight, growth in weighted_peers) / total_weight
+                weighted_variance = (
+                    sum(weight * ((growth - weighted_avg) ** 2) for weight, growth in weighted_peers) / total_weight
+                )
+                peer_metrics[(ctx.client_id, product_id)] = PeerMetrics(
+                    peer_avg_growth=weighted_avg,
+                    peer_std_growth=weighted_variance ** 0.5,
+                    peer_count=len(weighted_peers),
+                    peer_avg_similarity=total_weight / len(weighted_peers),
+                    peer_group_type="embedding_weighted",
+                )
+
         logger.info(f"Computed peer metrics for {len(peer_metrics)} products")
         return peer_metrics

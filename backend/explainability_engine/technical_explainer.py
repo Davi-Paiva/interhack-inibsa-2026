@@ -94,6 +94,26 @@ def explain_technical_payload(payload: list[dict[str, Any]], *, source_artifact:
                     weight=float(row.get("peer_drift_score", 0.0) or 0.0),
                     explanation_text="Peer drift shows the relationship is underperforming against comparable peers.",
                 ),
+                ContributingFactor(
+                    name="client_product_embedding_cosine",
+                    kind="latent_affinity",
+                    direction="decrease",
+                    raw_value=row.get("client_product_embedding_cosine"),
+                    display_value=format_decimal(row.get("client_product_embedding_cosine")),
+                    threshold=None,
+                    weight=abs(float(row.get("client_product_embedding_cosine", 0.0) or 0.0)),
+                    explanation_text="Latent affinity summarizes how naturally this product fits the client's historical basket.",
+                ),
+                ContributingFactor(
+                    name="client_product_preference_gap",
+                    kind="latent_affinity",
+                    direction="increase",
+                    raw_value=row.get("client_product_preference_gap"),
+                    display_value=format_decimal(row.get("client_product_preference_gap")),
+                    threshold=None,
+                    weight=abs(float(row.get("client_product_preference_gap", 0.0) or 0.0)),
+                    explanation_text="Preference gap compares observed demand with embedding-based expected fit for peer-aware context.",
+                ),
             ]
             + ranked_signal_factors
         )
@@ -115,6 +135,7 @@ def explain_technical_payload(payload: list[dict[str, Any]], *, source_artifact:
             f"Volume_drift_score={format_decimal(row.get('volume_drift_score'))}",
             f"Interval_drift_score={format_decimal(row.get('interval_drift_score'))}",
             f"Peer_drift_score={format_decimal(row.get('peer_drift_score'))}",
+            f"Peer_group_type={_string(row.get('peer_group_type'))}",
             f"Risk_score={format_decimal(row.get('risk_score'))}",
             f"Priority_score={format_decimal(row.get('priority_score'))}",
         ]
@@ -152,8 +173,13 @@ def explain_technical_payload(payload: list[dict[str, Any]], *, source_artifact:
                     "volume_drift_score": row.get("volume_drift_score"),
                     "interval_drift_score": row.get("interval_drift_score"),
                     "peer_drift_score": row.get("peer_drift_score"),
+                    "peer_avg_growth": row.get("peer_avg_growth"),
+                    "peer_avg_similarity": row.get("peer_avg_similarity"),
+                    "peer_group_type": row.get("peer_group_type"),
                     "potential_gap": row.get("potential_gap"),
                     "drift_signal_count": row.get("drift_signal_count"),
+                    "client_product_embedding_cosine": row.get("client_product_embedding_cosine"),
+                    "client_product_preference_gap": row.get("client_product_preference_gap"),
                 },
                 decision_trace=decision_trace,
                 source_artifact=source_artifact,

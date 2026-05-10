@@ -30,6 +30,8 @@ class PeerMetrics:
     peer_avg_growth: float
     peer_std_growth: float
     peer_count: int
+    peer_avg_similarity: float = 0.0
+    peer_group_type: str = "product_average"
 
 
 def _compute_peer_deviation(
@@ -139,4 +141,3 @@ def detect_peer_drift(
             signals.append(signal)
     
     return signals
-

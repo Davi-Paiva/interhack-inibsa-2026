@@ -224,6 +224,9 @@ class CaptureScoringEngine:
             "customer_id",
             product_key,
             "cluster_id",
+            "client_product_embedding_score",
+            "client_product_embedding_cosine",
+            "client_product_preference_gap",
             "leakage_score",
             "gap_units",
             "customer_total_revenue",
@@ -533,5 +536,4 @@ class CaptureScoringEngine:
             metrics[f"precision_at_{label_key}"] = precision
             metrics[f"lift_at_{label_key}"] = float(precision / base_rate) if base_rate > 0 else 0.0
         return metrics
-
 

@@ -47,10 +47,11 @@ def _ensure_feature_tables(mode: str, project_root: Optional[Path] = None) -> di
     sales = _load_prepared_sales(mode, project_root)
     if sales.empty:
         return expected_paths
+    embedding_bundle = build_embedding_bundle(sales)
     frames = {
-        "clients": build_client_features(sales),
-        "products": build_product_features(sales),
-        "client_product_features": build_client_product_features(sales),
+        "clients": build_client_features(sales, embedding_bundle=embedding_bundle),
+        "products": build_product_features(sales, embedding_bundle=embedding_bundle),
+        "client_product_features": build_client_product_features(sales, embedding_bundle=embedding_bundle),
     }
     for name, frame in frames.items():
         expected_paths[name].parent.mkdir(parents=True, exist_ok=True)
@@ -87,7 +88,7 @@ def _build_snapshot_dates(sales: pd.DataFrame) -> List[pd.Timestamp]:
         return []
     max_sale_date = sales["sale_date"].max().normalize()
     first_month_end = sales["sale_date"].min().to_period("M").to_timestamp(how="end").normalize()
-    all_month_ends = pd.date_range(first_month_end, max_sale_date, freq="ME")
+    all_month_ends = pd.date_range(first_month_end, max_sale_date, freq="M")
     snapshot_dates = [
         ts.normalize()
         for ts in all_month_ends
@@ -125,6 +126,7 @@ def build_historical_training_panel(
     *,
     n_clusters: int = 5,
     random_state: int = 42,
+    use_embedding_features: bool = False,
 ) -> pd.DataFrame:
     """Build the monthly walk-forward training panel without future leakage."""
     if sales.empty:
@@ -137,14 +139,25 @@ def build_historical_training_panel(
     frames: List[pd.DataFrame] = []
     for snapshot_date in snapshot_dates:
         snapshot_sales = sales.loc[sales["sale_date"].le(snapshot_date)].copy()
-        client_df = _attach_snapshot_metadata(build_client_features(snapshot_sales), snapshot_date)
-        product_df = _attach_snapshot_metadata(build_product_features(snapshot_sales), snapshot_date)
+        embedding_bundle = build_embedding_bundle(snapshot_sales)
+        client_df = _attach_snapshot_metadata(
+            build_client_features(snapshot_sales, embedding_bundle=embedding_bundle),
+            snapshot_date,
+        )
+        product_df = _attach_snapshot_metadata(
+            build_product_features(snapshot_sales, embedding_bundle=embedding_bundle),
+            snapshot_date,
+        )
         client_product_df = _attach_snapshot_metadata(
-            build_client_product_features(snapshot_sales),
+            build_client_product_features(snapshot_sales, embedding_bundle=embedding_bundle),
             snapshot_date,
         )
 
-        clusterer = CommodityCustomerCluster(n_clusters=n_clusters, random_state=random_state)
+        clusterer = CommodityCustomerCluster(
+            n_clusters=n_clusters,
+            random_state=random_state,
+            use_embedding_features=use_embedding_features,
+        )
         cluster_matrix = clusterer.prepare_matrix(client_df)
         clusterer.fit(cluster_matrix, raw_df=client_df)
         labels = clusterer.predict(cluster_matrix)
@@ -211,7 +224,12 @@ def _build_latest_snapshot_frame(
     return latest_frame, latest_snapshot_date
 
 
-def run_customer_clustering(mode: str, project_root: Optional[Path] = None) -> Path:
+def run_customer_clustering(
+    mode: str,
+    project_root: Optional[Path] = None,
+    *,
+    use_embedding_features: bool = False,
+) -> Path:
     """Run the real customer clustering component for the latest available feature snapshot."""
     project_root = (
         Path(project_root).resolve()
@@ -228,7 +246,11 @@ def run_customer_clustering(mode: str, project_root: Optional[Path] = None) -> P
         client_df = clusterer.load_inputs(features_dir)
         matrix = clusterer.prepare_matrix(client_df)
     else:
-        clusterer = CommodityCustomerCluster(n_clusters=5, random_state=42)
+        clusterer = CommodityCustomerCluster(
+            n_clusters=5,
+            random_state=42,
+            use_embedding_features=use_embedding_features,
+        )
         client_df = clusterer.load_inputs(features_dir)
         matrix = clusterer.prepare_matrix(client_df)
         clusterer.fit(matrix, raw_df=client_df)
@@ -253,6 +275,7 @@ def _run_forecast_backtest(
     panel: pd.DataFrame,
     *,
     warmup_snapshots: int = 12,
+    use_embedding_features: bool = False,
 ) -> Tuple[pd.DataFrame, dict]:
     if panel.empty:
         raise ValueError("Cannot run backtest on an empty panel")
@@ -269,7 +292,7 @@ def _run_forecast_backtest(
         train_df = panel.loc[panel["snapshot_date"].isin(train_dates)].reset_index(drop=True)
         validation_df = panel.loc[panel["snapshot_date"].eq(validation_date)].reset_index(drop=True)
 
-        forecaster = DemandForecaster()
+        forecaster = DemandForecaster(use_embedding_features=use_embedding_features)
         X_train, y_train = forecaster.build_training_frame(train_df)
         forecaster.train(X_train, y_train)
 
@@ -305,6 +328,7 @@ def _run_forecast_backtest(
             "evaluated_snapshots": int(len(snapshot_dates) - warmup_snapshots),
             "evaluated_rows": int(len(backtest_predictions)),
             "latest_evaluated_snapshot": str(pd.to_datetime(backtest_predictions["snapshot_date"]).max().date()),
+            "use_embedding_features": bool(use_embedding_features),
             "passes_baseline": bool(
                 metrics["rmse_improvement_vs_baseline"] > 0
                 and metrics["wmape_improvement_vs_baseline"] > 0
@@ -312,6 +336,17 @@ def _run_forecast_backtest(
         }
     )
     return backtest_predictions, metrics
+
+
+def _select_forecast_variant(
+    baseline_metrics: dict,
+    embedding_metrics: dict,
+) -> tuple[str, bool]:
+    embedding_wins = (
+        float(embedding_metrics.get("rmse", np.inf)) < float(baseline_metrics.get("rmse", np.inf))
+        and float(embedding_metrics.get("wmape", np.inf)) < float(baseline_metrics.get("wmape", np.inf))
+    )
+    return ("embedding", True) if embedding_wins else ("baseline", False)
 
 
 def run_model_evaluation(mode: str, project_root: Optional[Path] = None) -> dict[str, Path]:
@@ -324,12 +359,36 @@ def run_model_evaluation(mode: str, project_root: Optional[Path] = None) -> dict
     commodity_output_dir = project_root / "backend" / "commodity-ai-engine" / "output" / mode
     commodity_output_dir.mkdir(parents=True, exist_ok=True)
 
-    run_customer_clustering(mode, project_root)
-
     if mode == "historical":
         sales = _load_prepared_sales(mode, project_root)
-        panel = build_historical_training_panel(sales)
-        backtest_predictions, forecast_metrics = _run_forecast_backtest(panel)
+        baseline_panel = build_historical_training_panel(sales, use_embedding_features=False)
+        baseline_backtest, baseline_metrics = _run_forecast_backtest(
+            baseline_panel,
+            use_embedding_features=False,
+        )
+        embedding_panel = build_historical_training_panel(sales, use_embedding_features=True)
+        embedding_backtest, embedding_metrics = _run_forecast_backtest(
+            embedding_panel,
+            use_embedding_features=True,
+        )
+        selected_variant, use_embedding_features = _select_forecast_variant(
+            baseline_metrics,
+            embedding_metrics,
+        )
+        panel = embedding_panel if use_embedding_features else baseline_panel
+        backtest_predictions = embedding_backtest if use_embedding_features else baseline_backtest
+        forecast_metrics = embedding_metrics if use_embedding_features else baseline_metrics
+        forecast_metrics["selected_variant"] = selected_variant
+        forecast_metrics["embedding_candidate_beats_baseline"] = bool(use_embedding_features)
+        experiment_report = {
+            "selected_variant": selected_variant,
+            "baseline": baseline_metrics,
+            "embedding_candidate": embedding_metrics,
+        }
+        _write_json(
+            experiment_report,
+            _metrics_dir(commodity_output_dir) / "forecast_feature_experiment.json",
+        )
 
         backtest_path = _write_parquet(
             backtest_predictions,
@@ -340,8 +399,13 @@ def run_model_evaluation(mode: str, project_root: Optional[Path] = None) -> dict
             _metrics_dir(commodity_output_dir) / "forecast_metrics.json",
         )
 
+        run_customer_clustering(
+            mode,
+            project_root,
+            use_embedding_features=use_embedding_features,
+        )
         latest_frame, latest_snapshot_date = _build_latest_snapshot_frame(mode, project_root)
-        final_forecaster = DemandForecaster()
+        final_forecaster = DemandForecaster(use_embedding_features=use_embedding_features)
         X_all, y_all = final_forecaster.build_training_frame(panel)
         final_forecaster.train(X_all, y_all)
         final_forecaster.save_model(commodity_output_dir)
@@ -361,6 +425,7 @@ def run_model_evaluation(mode: str, project_root: Optional[Path] = None) -> dict
             backtest_predictions=backtest_predictions,
         )
     else:
+        run_customer_clustering(mode, project_root)
         model_path = _forecast_model_path(project_root)
         latest_frame, latest_snapshot_date = _build_latest_snapshot_frame(mode, project_root)
         forecaster = DemandForecaster.load_model(model_path)

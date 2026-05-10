@@ -28,6 +28,37 @@ def _string(value: Any) -> str:
     return "" if value is None else str(value)
 
 
+def _embedding_factors(row: dict[str, Any]) -> list[ContributingFactor]:
+    factors: list[ContributingFactor] = []
+    if row.get("client_product_embedding_cosine") is not None:
+        factors.append(
+            ContributingFactor(
+                name="client_product_embedding_cosine",
+                kind="latent_affinity",
+                direction="increase",
+                raw_value=row.get("client_product_embedding_cosine"),
+                display_value=format_decimal(row.get("client_product_embedding_cosine")),
+                threshold=None,
+                weight=0.35,
+                explanation_text="Latent client-product affinity adds dense behavioral context from basket-level embeddings.",
+            )
+        )
+    if row.get("client_product_preference_gap") is not None:
+        factors.append(
+            ContributingFactor(
+                name="client_product_preference_gap",
+                kind="latent_affinity",
+                direction="increase",
+                raw_value=row.get("client_product_preference_gap"),
+                display_value=format_decimal(row.get("client_product_preference_gap")),
+                threshold=None,
+                weight=0.25,
+                explanation_text="The latent preference gap compares observed demand with the embedding-based expected fit.",
+            )
+        )
+    return factors
+
+
 def explain_leakage_frame(df: pd.DataFrame, *, source_artifact: str) -> list[ExplanationRecord]:
     records: list[ExplanationRecord] = []
     variant = COMMODITY_DEMAND_LEAKAGE
@@ -88,6 +119,7 @@ def explain_leakage_frame(df: pd.DataFrame, *, source_artifact: str) -> list[Exp
                     explanation_text="Higher forecast confidence makes the leakage signal more reliable.",
                 ),
             ]
+            + _embedding_factors(row)
         )
         gap_units = format_decimal(row.get("gap_units"))
         predicted_sales = format_decimal(row.get("predicted_30d_sales"))
@@ -139,6 +171,8 @@ def explain_leakage_frame(df: pd.DataFrame, *, source_artifact: str) -> list[Exp
                     "return_penalty": row.get("return_penalty"),
                     "confidence_factor": row.get("confidence_factor"),
                     "leakage_score": row.get("leakage_score"),
+                    "client_product_embedding_cosine": row.get("client_product_embedding_cosine"),
+                    "client_product_preference_gap": row.get("client_product_preference_gap"),
                     "is_actionable": row.get("is_actionable"),
                     "routing_reason": row.get("routing_reason"),
                 },
@@ -200,6 +234,7 @@ def explain_capture_frame(df: pd.DataFrame, *, source_artifact: str) -> list[Exp
                     explanation_text="Confidence contributes 10% of the capture ranking.",
                 ),
             ]
+            + _embedding_factors(row)
         )
         why_text = (
             f"This opportunity is prioritized because leakage, customer value, urgency, and confidence combine "
@@ -248,6 +283,8 @@ def explain_capture_frame(df: pd.DataFrame, *, source_artifact: str) -> list[Exp
                     "value_component": row.get("value_component"),
                     "urgency_component": row.get("urgency_component"),
                     "confidence_component": row.get("confidence_component"),
+                    "client_product_embedding_cosine": row.get("client_product_embedding_cosine"),
+                    "client_product_preference_gap": row.get("client_product_preference_gap"),
                 },
                 decision_trace=decision_trace,
                 source_artifact=source_artifact,
@@ -297,6 +334,7 @@ def explain_next_purchase_frame(df: pd.DataFrame, *, source_artifact: str) -> li
                     explanation_text="The replenishment interval anchors the expected next purchase date.",
                 ),
             ]
+            + _embedding_factors(row)
         )
         expected_date = _string(row.get("expected_next_purchase_date"))
         why_text = (
@@ -340,10 +378,12 @@ def explain_next_purchase_frame(df: pd.DataFrame, *, source_artifact: str) -> li
                 supporting_metrics={
                     "estimated_interval_days": row.get("estimated_interval_days"),
                     "days_until_expected_purchase": row.get("days_until_expected_purchase"),
-                    "expected_next_purchase_date": row.get("expected_next_purchase_date"),
+                    "expected_next_purchase_date": _string(row.get("expected_next_purchase_date")),
                     "purchase_probability": row.get("purchase_probability"),
-                    "contact_window_start": row.get("contact_window_start"),
-                    "contact_window_end": row.get("contact_window_end"),
+                    "client_product_embedding_cosine": row.get("client_product_embedding_cosine"),
+                    "client_product_preference_gap": row.get("client_product_preference_gap"),
+                    "contact_window_start": _string(row.get("contact_window_start")),
+                    "contact_window_end": _string(row.get("contact_window_end")),
                     "contact_recommendation": row.get("contact_recommendation"),
                 },
                 decision_trace=decision_trace,
