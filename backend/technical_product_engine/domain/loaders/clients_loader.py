@@ -28,7 +28,9 @@ def load_clients(file_path: str | Path) -> List[Client]:
                 customer_total_orders=int(row['customer_total_orders']),
                 customer_avg_ticket=float(row['customer_avg_ticket']),
                 customer_frequency=float(row['customer_frequency']),
+                customer_frequency_log1p=float(row['customer_frequency_log1p']),
                 days_since_last_order=int(row['days_since_last_order']),
+                is_active_customer=row['is_active_customer'].lower() in ('true', '1', 'yes'),
                 return_rate_30d=float(row['return_rate_30d']),
                 campaign_lift=float(row['campaign_lift']),
                 coefficient_variation_30d=float(row['coefficient_variation_30d'])

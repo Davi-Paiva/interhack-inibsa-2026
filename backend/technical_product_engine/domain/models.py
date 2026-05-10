@@ -28,7 +28,9 @@ class Client:
     customer_total_orders: int
     customer_avg_ticket: float
     customer_frequency: float
+    customer_frequency_log1p: float
     days_since_last_order: int
+    is_active_customer: bool
     return_rate_30d: float
     campaign_lift: float
     coefficient_variation_30d: float

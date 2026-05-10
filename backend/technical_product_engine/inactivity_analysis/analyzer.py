@@ -34,8 +34,13 @@ class InactivityAnalyzer:
     ) -> InactivityAssessment:
         expected_cycle: float = estimate_expected_cycle(ctx, peer_cycle=peer_cycle)
 
+        # Get product-specific days since last order from features
+        # Try features.days_since_last_product_order first (correct field)
+        # Fall back to top-level days_since_last_order for compatibility
         days_since_last_order: int = int(
-            getattr(ctx, "days_since_last_order", 0) or 0
+            getattr(getattr(ctx, "features", None), "days_since_last_product_order", None)
+            or getattr(ctx, "days_since_last_order", 0)
+            or 0
         )
 
         inactivity_ratio, inactivity_score = compute_inactivity(

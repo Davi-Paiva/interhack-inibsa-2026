@@ -29,7 +29,9 @@ def example_drift_detection():
         customer_total_orders=100,
         customer_avg_ticket=500.0,
         customer_frequency=0.1,  # ~10 orders per 100 days
+        customer_frequency_log1p=0.095,
         days_since_last_order=45,
+        is_active_customer=True,
         return_rate_30d=0.02,
         campaign_lift=0.15,
         coefficient_variation_30d=0.3,

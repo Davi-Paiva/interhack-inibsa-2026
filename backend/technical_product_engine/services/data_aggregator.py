@@ -132,21 +132,30 @@ class DataAggregator:
             'client_product_features': len(self.client_product_features),
         }
     
-    def get_technical_products(self) -> List[Product]:
-        """Filter products by technical analytic block.
+    def get_technical_products(self, analytic_block: str = "Productos Técnicos") -> List[Product]:
+        """Filter products by analytic block.
         
+        Args:
+            analytic_block: The analytic block to filter by (default: "Productos Técnicos")
+            
         Returns:
-            List of technical products
+            List of products in the specified analytic block
         """
-        return [p for p in self.products if p.analytic_block.lower() == 'technical']
+        logger.info(f"Filtering products by analytic_block: '{analytic_block}'")
+        filtered = [p for p in self.products if p.analytic_block == analytic_block]
+        logger.info(f"Found {len(filtered)} products in '{analytic_block}' block")
+        return filtered
     
-    def filter_by_technical_products(self) -> Dict[str, List[Any]]:
-        """Filter all datasets to include only technical products.
+    def filter_by_technical_products(self, analytic_block: str = "Productos Técnicos") -> Dict[str, List[Any]]:
+        """Filter all datasets to include only products from specified analytic block.
         
+        Args:
+            analytic_block: The analytic block to filter by (default: "Productos Técnicos")
+            
         Returns:
             Dictionary with filtered datasets
         """
-        technical_products = self.get_technical_products()
+        technical_products = self.get_technical_products(analytic_block=analytic_block)
         technical_product_ids = {p.product_id for p in technical_products}
         
         logger.info(f"Filtering data for {len(technical_product_ids)} technical products")
@@ -173,25 +182,31 @@ class DataAggregator:
         
         return filtered_data
     
-    def build_client_product_contexts(self, technical_only: bool = True) -> List[ClientProductContext]:
+    def build_client_product_contexts(
+        self, 
+        technical_only: bool = True,
+        analytic_block: str = "Productos Técnicos"
+    ) -> List[ClientProductContext]:
         """Build unified contexts for all client-product relationships.
         
         Args:
-            technical_only: If True, only build contexts for technical products
+            technical_only: If True, only build contexts for specified analytic block
+            analytic_block: The analytic block to filter by when technical_only is True
             
         Returns:
             List of ClientProductContext objects
         """
-        logger.info(f"Building client-product contexts (technical_only={technical_only})")
+        logger.info(f"Building client-product contexts (technical_only={technical_only}, block='{analytic_block}')")
         
         # Build lookup dictionaries for O(1) access
         clients_map = {c.client_id: c for c in self.clients}
         products_map = {p.product_id: p for p in self.products}
         
-        # Build potential lookup by (client_id, family)
+        # Build potential lookup by (client_id, product_category)
+        # Match potential.product_category to product.category
         potential_map = {}
         for p in self.potentials:
-            key = (p.client_id, p.family)
+            key = (p.client_id, p.product_category)
             potential_map[key] = p
         
         # Group sales by (client_id, product_id)
@@ -205,8 +220,13 @@ class DataAggregator:
         # Filter features if technical only
         features_to_process = self.client_product_features
         if technical_only:
-            technical_product_ids = {p.product_id for p in self.products if p.analytic_block.lower() == 'technical'}
+            technical_product_ids = {
+                p.product_id for p in self.products 
+                if p.analytic_block == analytic_block
+            }
+            logger.info(f"Filtering for {len(technical_product_ids)} products in '{analytic_block}' block")
             features_to_process = [f for f in features_to_process if f.product_id in technical_product_ids]
+            logger.info(f"Filtered to {len(features_to_process)} client-product features")
         
         # Build contexts
         contexts = []
@@ -218,8 +238,8 @@ class DataAggregator:
                 logger.warning(f"Missing data for {features.client_id}-{features.product_id}")
                 continue
             
-            # Find matching potential by family
-            potential = potential_map.get((features.client_id, product.family))
+            # Find matching potential by product category
+            potential = potential_map.get((features.client_id, product.category))
             
             # Get sales history
             sales_history = sales_map.get((features.client_id, features.product_id), [])
@@ -237,3 +257,51 @@ class DataAggregator:
         
         logger.info(f"Built {len(contexts)} client-product contexts")
         return contexts
+    
+    def compute_peer_metrics(self, contexts: List[ClientProductContext]) -> Dict[str, Any]:
+        """Compute peer metrics for drift detection.
+        
+        Calculates average growth rates per product across all clients
+        to enable peer-based drift detection.
+        
+        Args:
+            contexts: List of client-product contexts
+            
+        Returns:
+            Dictionary with peer metrics by product_id
+        """
+        from collections import defaultdict
+        from ..drift_detection.peer_drift import PeerMetrics
+        
+        logger.info(f"Computing peer metrics for {len(contexts)} contexts")
+        
+        # Group contexts by product_id
+        product_contexts = defaultdict(list)
+        for ctx in contexts:
+            product_contexts[ctx.product_id].append(ctx)
+        
+        # Calculate peer metrics for each product
+        peer_metrics = {}
+        for product_id, product_ctxs in product_contexts.items():
+            # Extract growth rates from contexts
+            growth_rates = []
+            for ctx in product_ctxs:
+                if ctx.features and ctx.features.sales_growth_30d is not None:
+                    growth_rates.append(ctx.features.sales_growth_30d)
+            
+            if len(growth_rates) < 5:  # Minimum sample size
+                continue
+            
+            # Calculate statistics
+            import statistics
+            avg_growth = statistics.mean(growth_rates)
+            std_growth = statistics.stdev(growth_rates) if len(growth_rates) > 1 else 0.0
+            
+            peer_metrics[product_id] = PeerMetrics(
+                peer_avg_growth=avg_growth,
+                peer_std_growth=std_growth,
+                peer_count=len(growth_rates)
+            )
+        
+        logger.info(f"Computed peer metrics for {len(peer_metrics)} products")
+        return peer_metrics

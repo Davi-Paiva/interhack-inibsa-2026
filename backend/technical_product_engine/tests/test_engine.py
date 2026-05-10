@@ -65,8 +65,8 @@ def sample_clients_csv(temp_dir):
         writer = csv.DictWriter(f, fieldnames=[
             'client_id', 'postal_code', 'province', 'customer_total_revenue',
             'customer_total_orders', 'customer_avg_ticket', 'customer_frequency',
-            'days_since_last_order', 'return_rate_30d', 'campaign_lift',
-            'coefficient_variation_30d'
+            'customer_frequency_log1p', 'days_since_last_order', 'is_active_customer',
+            'return_rate_30d', 'campaign_lift', 'coefficient_variation_30d'
         ])
         writer.writeheader()
         writer.writerows([
@@ -74,14 +74,16 @@ def sample_clients_csv(temp_dir):
                 'client_id': 'CL001', 'postal_code': '28001', 'province': 'Madrid',
                 'customer_total_revenue': '10000.50', 'customer_total_orders': '25',
                 'customer_avg_ticket': '400.02', 'customer_frequency': '2.5',
-                'days_since_last_order': '10', 'return_rate_30d': '0.05',
+                'customer_frequency_log1p': '1.25', 'days_since_last_order': '10',
+                'is_active_customer': 'True', 'return_rate_30d': '0.05',
                 'campaign_lift': '1.2', 'coefficient_variation_30d': '0.15'
             },
             {
                 'client_id': 'CL002', 'postal_code': '08001', 'province': 'Barcelona',
                 'customer_total_revenue': '5000.00', 'customer_total_orders': '10',
                 'customer_avg_ticket': '500.00', 'customer_frequency': '1.5',
-                'days_since_last_order': '20', 'return_rate_30d': '0.10',
+                'customer_frequency_log1p': '0.92', 'days_since_last_order': '20',
+                'is_active_customer': 'True', 'return_rate_30d': '0.10',
                 'campaign_lift': '1.1', 'coefficient_variation_30d': '0.20'
             },
         ])
@@ -237,7 +239,9 @@ class TestModels:
             customer_total_orders=25,
             customer_avg_ticket=400.02,
             customer_frequency=2.5,
+            customer_frequency_log1p=1.25,
             days_since_last_order=10,
+            is_active_customer=True,
             return_rate_30d=0.05,
             campaign_lift=1.2,
             coefficient_variation_30d=0.15
@@ -271,7 +275,8 @@ class TestModels:
             client_id='CL001', postal_code='28001', province='Madrid',
             customer_total_revenue=10000.50, customer_total_orders=25,
             customer_avg_ticket=400.02, customer_frequency=2.5,
-            days_since_last_order=10, return_rate_30d=0.05,
+            customer_frequency_log1p=1.25, days_since_last_order=10,
+            is_active_customer=True, return_rate_30d=0.05,
             campaign_lift=1.2, coefficient_variation_30d=0.15
         )
         product = Product(
