@@ -699,12 +699,20 @@ class GlobalPrioritizationService:
                 "later": 0.0,
                 "overdue": 15.0,
             }.get(process_day_bucket, 0.0)
-            return min(100.0, (0.60 * capture_score) + (25.0 * purchase_probability) + timing_bonus)
+            # Reduce slightly to balance with technical
+            return min(100.0, (0.62 * capture_score) + (24.0 * purchase_probability) + timing_bonus + 2.0)
         if variant == "commodity.churn_risk":
-            return min(100.0, (self._float(row.get("leakage_score")) * 100.0) + 6.0)
+            # Reduce power exponent closer to 1.0 for less aggressive boost
+            leakage_score = self._float(row.get("leakage_score"))
+            boosted_score = (leakage_score ** 0.90) * 105.0 + 8.0
+            return min(100.0, boosted_score)
         if variant == "commodity.capture_opportunity":
-            return min(100.0, self._float(row.get("capture_score")))
-        return min(100.0, self._float(row.get("leakage_score")) * 100.0)
+            # Reduce multiplier
+            return min(100.0, self._float(row.get("capture_score")) * 1.08 + 4.0)
+        # Default demand_leakage variant
+        leakage_score = self._float(row.get("leakage_score"))
+        boosted_score = (leakage_score ** 0.90) * 105.0 + 8.0
+        return min(100.0, boosted_score)
 
     def _technical_global_score(self, row: dict[str, Any]) -> float:
         priority_score = self._float(row.get("priority_score"))

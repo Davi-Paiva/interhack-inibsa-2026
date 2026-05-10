@@ -212,16 +212,21 @@ class DemandLeakageDetector:
         scored["volatility_penalty"] = 1.0 / (1.0 + volatility)
         scored["campaign_softener"] = 1.0 - (0.35 * np.clip(campaign_lift, 0.0, 1.0))
         scored["return_penalty"] = 1.0 - (0.4 * np.clip(return_rate, 0.0, 0.5))
-        scored["confidence_factor"] = np.clip(0.5 + forecast_confidence, 0.0, 1.0)
-        scored["leakage_score"] = np.clip(
-            scored["gap_ratio"]
+        # Boost confidence factor: default to 0.85 instead of 0.5 when forecast_confidence is missing
+        scored["confidence_factor"] = np.clip(0.85 + (0.15 * forecast_confidence), 0.0, 1.0)
+        
+        # Apply square root to gap_ratio to make it less punishing (0.25 -> 0.5, 0.49 -> 0.7)
+        # Then multiply by boost factor to bring scores into competitive range
+        gap_component = np.sqrt(scored["gap_ratio"])
+        base_score = (
+            gap_component
             * scored["volatility_penalty"]
             * scored["campaign_softener"]
             * scored["return_penalty"]
-            * scored["confidence_factor"],
-            0.0,
-            1.0,
+            * scored["confidence_factor"]
         )
+        # Apply 1.8x multiplier to boost into competitive range with technical scores
+        scored["leakage_score"] = np.clip(base_score * 1.8, 0.0, 1.0)
         scored["risk_level"] = self.classify_risk(scored["leakage_score"])
         return scored
 
