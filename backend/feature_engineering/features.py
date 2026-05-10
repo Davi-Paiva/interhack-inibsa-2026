@@ -627,9 +627,9 @@ def run_feature_pipeline(
     commodity_sales = _prepare_sales_frame(source_frame, commodity_only=True)
     all_product_sales = _prepare_sales_frame(source_frame, commodity_only=False)
     frames = _empty_frames() if commodity_sales.empty and all_product_sales.empty else {
-        "client_features": build_client_features(commodity_sales) if not commodity_sales.empty else pd.DataFrame(columns=CLIENT_FEATURE_COLUMNS),
+        "client_features": build_client_features(all_product_sales) if not all_product_sales.empty else pd.DataFrame(columns=CLIENT_FEATURE_COLUMNS),
         "product_features": build_product_features(all_product_sales) if not all_product_sales.empty else pd.DataFrame(columns=PRODUCT_FEATURE_COLUMNS),
-        "client_product_features": build_client_product_features(commodity_sales) if not commodity_sales.empty else pd.DataFrame(columns=CLIENT_PRODUCT_FEATURE_COLUMNS),
+        "client_product_features": build_client_product_features(all_product_sales) if not all_product_sales.empty else pd.DataFrame(columns=CLIENT_PRODUCT_FEATURE_COLUMNS),
     }
     frames, _ = align_feature_tables_to_contract(frames)
     outputs = write_feature_frames(frames, mode=mode, config=config)

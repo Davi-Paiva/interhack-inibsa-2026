@@ -83,9 +83,9 @@ def build_config(args: argparse.Namespace) -> FeatureConfig:
 
 def build_feature_tables(commodity_sales, all_product_sales) -> dict[str, object]:
     return {
-        "client_features": build_client_features(commodity_sales),
+        "client_features": build_client_features(all_product_sales),
         "product_features": build_product_features(all_product_sales),
-        "client_product_features": build_client_product_features(commodity_sales),
+        "client_product_features": build_client_product_features(all_product_sales),
     }
 
 
