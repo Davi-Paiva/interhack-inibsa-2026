@@ -81,11 +81,62 @@ def test_technical_process_date_defaults_to_priority_window(tmp_path: Path) -> N
         "drift_signal_count": 2,
     }
     process_on_date = service._technical_process_date(row, reference_date=reference)
-    assert process_on_date == reference
-    assert service._bucket_for_date(process_on_date, reference) == "today"
+    assert process_on_date == pd.Timestamp("2026-05-20")
+    assert service._bucket_for_date(process_on_date, reference) == "later"
 
 
-def test_technical_rows_keep_source_priority_band(tmp_path: Path) -> None:
+def test_commodity_churn_candidates_require_promiscuous_stale_or_inactive_signal(tmp_path: Path) -> None:
+    service = GlobalPrioritizationService(project_root=tmp_path)
+
+    assert service._is_commodity_churn_candidate(
+        {
+            "route_to_engine": "technical_product_engine",
+            "risk_level": "high",
+            "cluster_id": 2,
+            "routing_reason": "inactive_customer|zero_baseline",
+        }
+    )
+    assert service._is_commodity_churn_candidate(
+        {
+            "route_to_engine": "technical_product_engine",
+            "risk_level": "medium",
+            "cluster_id": 2,
+            "routing_reason": "stale_customer|zero_baseline",
+        }
+    )
+    assert not service._is_commodity_churn_candidate(
+        {
+            "route_to_engine": "technical_product_engine",
+            "risk_level": "high",
+            "cluster_id": 2,
+            "routing_reason": "zero_baseline",
+        }
+    )
+    assert not service._is_commodity_churn_candidate(
+        {
+            "route_to_engine": "technical_product_engine",
+            "risk_level": "high",
+            "cluster_id": 1,
+            "routing_reason": "inactive_customer|zero_baseline",
+        }
+    )
+
+
+def test_commodity_churn_score_adds_reactivation_bonus(tmp_path: Path) -> None:
+    service = GlobalPrioritizationService(project_root=tmp_path)
+
+    score = service._commodity_global_score(
+        {
+            "canonical_variant": "commodity.churn_risk",
+            "leakage_score": 0.42,
+        },
+        process_day_bucket="tomorrow",
+    )
+
+    assert score == 48.0
+
+
+def test_technical_rows_use_stricter_score_based_bands(tmp_path: Path) -> None:
     service = GlobalPrioritizationService(project_root=tmp_path)
     rows = [
         {
@@ -96,6 +147,15 @@ def test_technical_rows_keep_source_priority_band(tmp_path: Path) -> None:
             "priority_score": 6.0,
             "inactivity_ratio": 4.0,
             "drift_signal_count": 1,
+        },
+        {
+            "client_id": "C003",
+            "product_id": "P003",
+            "risk_level": "critical",
+            "priority_level": "critical",
+            "priority_score": 8.0,
+            "inactivity_ratio": 4.0,
+            "drift_signal_count": 0,
         }
     ]
 
@@ -103,13 +163,16 @@ def test_technical_rows_keep_source_priority_band(tmp_path: Path) -> None:
         rows,
         reference_date=pd.Timestamp("2026-05-10"),
         explanation_map={},
+        reason_map={},
     )
 
     assert built[0]["global_priority_score"] == 45.0
-    assert built[0]["global_priority_band"] == "critical"
+    assert built[0]["global_priority_band"] == "medium"
+    assert built[1]["global_priority_score"] == 60.0
+    assert built[1]["global_priority_band"] == "critical"
 
 
-def test_ranking_sorts_by_process_date_then_score(tmp_path: Path) -> None:
+def test_ranking_uses_operational_score_before_process_date(tmp_path: Path) -> None:
     service = GlobalPrioritizationService(project_root=tmp_path)
     rows = [
         {

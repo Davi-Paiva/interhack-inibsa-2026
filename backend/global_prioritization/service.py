@@ -82,7 +82,7 @@ class GlobalPrioritizationService:
             explanation_map=explanation_map,
             reason_map=reason_map,
         )
-        queue_rows = consolidated_commodity + technical_rows
+        queue_rows = consolidated_commodity + self._select_technical_candidates(technical_rows)
         queue_rows = [
             self._apply_feedback_enrichment(
                 row,
@@ -475,10 +475,10 @@ class GlobalPrioritizationService:
         *,
         reference_date: pd.Timestamp,
     ) -> list[GlobalAlertRecord]:
-        del reference_date
         ordered = sorted(
             rows,
             key=lambda row: (
+                -self._operational_rank_score(row, reference_date=reference_date),
                 pd.Timestamp(row.get("_effective_process_on_date", row["process_on_date"])).normalize(),
                 -self._float(row.get("_effective_priority_score", row.get("global_priority_score"))),
                 self._string(row.get("source_engine")),
@@ -557,6 +557,15 @@ class GlobalPrioritizationService:
             )
         return pd.DataFrame(rows)
 
+    @staticmethod
+    def _select_technical_candidates(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [
+            row
+            for row in rows
+            if row.get("process_day_bucket") in {"today", "tomorrow", "this_week"}
+            and row.get("global_priority_band") == "critical"
+        ]
+
     def _apply_feedback_enrichment(
         self,
         row: dict[str, Any],
@@ -614,6 +623,21 @@ class GlobalPrioritizationService:
         enriched["_effective_priority_score"] = adjusted_score
         enriched["_effective_process_on_date"] = effective_process_on_date
         return enriched
+
+    def _operational_rank_score(self, row: dict[str, Any], *, reference_date: pd.Timestamp) -> float:
+        effective_process_on_date = pd.Timestamp(
+            row.get("_effective_process_on_date", row.get("process_on_date"))
+        ).normalize()
+        effective_bucket = self._bucket_for_date(effective_process_on_date, reference_date)
+        urgency_bonus = {
+            "overdue": 8.0,
+            "today": 7.0,
+            "tomorrow": 5.0,
+            "this_week": 2.0,
+            "later": 0.0,
+        }.get(effective_bucket, 0.0)
+        effective_score = self._float(row.get("_effective_priority_score", row.get("global_priority_score")))
+        return effective_score + urgency_bonus
 
     def _commodity_process_date(self, row: dict[str, Any], *, reference_date: pd.Timestamp) -> pd.Timestamp:
         variant = self._string(row.get("canonical_variant"))
@@ -714,17 +738,18 @@ class GlobalPrioritizationService:
         priority_label: Any = None,
     ) -> str:
         if source_engine == "technical_product_engine":
-            source_band = self._technical_priority_band(priority_label)
-            if source_band is not None:
-                return source_band
+            return self._technical_priority_band(score)
         return self._priority_band(score)
 
     @staticmethod
-    def _technical_priority_band(priority_label: Any) -> str | None:
-        label = "" if priority_label is None else str(priority_label).strip().lower()
-        if label in {"low", "medium", "high", "critical"}:
-            return label
-        return None
+    def _technical_priority_band(score: float) -> str:
+        if score >= 60.0:
+            return "critical"
+        if score >= 50.0:
+            return "high"
+        if score >= 40.0:
+            return "medium"
+        return "low"
 
     def _technical_recommendation(self, priority_level: str | None, inactivity_ratio: float) -> str:
         drift_count = 0  # Not available in this context
@@ -737,6 +762,27 @@ class GlobalPrioritizationService:
         if priority_level == "medium":
             return "Monitor relationship and plan proactive check-in within 2 weeks."
         return "Track for patterns - routine monitoring sufficient."
+
+    def _is_commodity_churn_candidate(self, row: dict[str, Any]) -> bool:
+        routing_reason = self._string(row.get("routing_reason"))
+        return (
+            self._string(row.get("route_to_engine")) == "technical_product_engine"
+            and self._string(row.get("risk_level")) in {"high", "medium"}
+            and self._is_promiscuous_cluster(row.get("cluster_id"))
+            and ("inactive_customer" in routing_reason or "stale_customer" in routing_reason)
+        )
+
+    def _is_promiscuous_cluster(self, cluster_id: Any) -> bool:
+        try:
+            numeric = float(cluster_id)
+        except (TypeError, ValueError):
+            return False
+        return not pd.isna(numeric) and numeric == float(PROMISCUOUS_CLUSTER_ID)
+
+    def _commodity_churn_recommendation(self, routing_reason: str) -> str:
+        if "inactive_customer" in routing_reason or "stale_customer" in routing_reason:
+            return "Promiscuous commodity relationship is going inactive; verify churn risk and assess reactivation opportunity."
+        return "Review this promiscuous commodity relationship for a possible reactivation opportunity."
 
     def _collect_explanations(
         self,
