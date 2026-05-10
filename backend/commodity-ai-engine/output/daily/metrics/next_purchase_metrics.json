@@ -1,0 +1,29 @@
+{
+  "source_rows": 1105,
+  "prediction_rows": 1105,
+  "probability_distribution": {
+    "min": 0.1374888314255388,
+    "mean": 0.4141782569813014,
+    "median": 0.3488362181904886,
+    "p90": 0.6808170373094905,
+    "max": 0.8340380080603724
+  },
+  "days_until_purchase_distribution": {
+    "min": 1,
+    "mean": 23.624434389140273,
+    "median": 1.0,
+    "p90": 87.0,
+    "max": 117
+  },
+  "priority_band_counts": {
+    "critical": 262,
+    "high": 483,
+    "low": 21,
+    "medium": 339
+  },
+  "due_within_7d": 695,
+  "due_within_14d": 714,
+  "due_within_30d": 768,
+  "actionable_capture_rows": 1105,
+  "coherent_contact_windows_share": 1.0
+}

@@ -1,0 +1,6 @@
+{
+  "mode": "daily_inference",
+  "model_source": "/Users/joanvm/Desktop/Projects/Hackathon/InterHack26/interhack-inibsa-2026/backend/commodity-ai-engine/output/historical/models/consumption_forecaster.pkl",
+  "inference_rows": 18734,
+  "latest_snapshot_date": "2025-12-29"
+}

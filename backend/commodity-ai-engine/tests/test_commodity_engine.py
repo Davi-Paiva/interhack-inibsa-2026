@@ -22,9 +22,12 @@ from commodity_engine import (  # noqa: E402
     NextPurchasePredictor,
     build_historical_training_panel,
     run_capture_scoring,
+    run_customer_clustering,
     run_demand_leakage,
+    run_model_evaluation,
     run_next_purchase_prediction,
 )
+import commodity_engine_core.pipeline as pipeline_module  # noqa: E402
 
 
 def _build_client_table() -> pd.DataFrame:
@@ -373,6 +376,107 @@ def test_cluster_schema_allows_real_client_extras() -> None:
     }
 
 
+def test_clustering_model_artifact_round_trip_preserves_predictions(tmp_path: Path) -> None:
+    clusterer = CommodityCustomerCluster(n_clusters=3, random_state=42)
+    client_table = _build_client_table()
+
+    matrix = clusterer.prepare_matrix(client_table)
+    clusterer.fit(matrix, raw_df=client_table)
+    original_labels = clusterer.predict(matrix)
+    model_path = clusterer.save_model(tmp_path)
+
+    restored = CommodityCustomerCluster.load_model(model_path)
+    restored_labels = restored.predict(restored.prepare_matrix(client_table))
+
+    assert np.array_equal(original_labels, restored_labels)
+
+
+def test_forecast_model_artifact_round_trip_preserves_predictions(tmp_path: Path) -> None:
+    rows = []
+    for month_index, snapshot_date in enumerate(
+        pd.date_range("2024-01-31", periods=18, freq="M"),
+        start=1,
+    ):
+        for customer_index in range(4):
+            customer_id = f"C{customer_index}"
+            product_id = "P1" if customer_index % 2 == 0 else "P2"
+            rolling_sales = 100 + month_index * 5 + customer_index * 10
+            rows.append(
+                {
+                    "customer_id": customer_id,
+                    "product_id": product_id,
+                    "rolling_sales_30d": rolling_sales,
+                    "sales_growth_30d": 0.05 * (customer_index + 1),
+                    "days_since_last_product_order": 5 + customer_index,
+                    "client_product_frequency": 1.0 + customer_index * 0.2,
+                    "client_product_avg_ticket": 90 + customer_index * 10,
+                    "client_product_return_rate": 0.01 * customer_index,
+                    "campaign_lift_product": 0.1,
+                    "client_product_total_revenue": rolling_sales * 6,
+                    "client_product_total_orders": 5 + customer_index,
+                    "analytic_block": "Commodities",
+                    "category": "Categoria C1",
+                    "product_family": "Familia C1" if product_id == "P1" else "Familia C2",
+                    "product_total_revenue": 10000 + month_index * 100,
+                    "product_total_units": 500,
+                    "product_frequency": 10 + month_index,
+                    "product_growth_30d": 0.1,
+                    "product_return_rate": 0.02,
+                    "product_customer_count": 50,
+                    "postal_code": "08001",
+                    "province": "Barcelona",
+                    "customer_total_revenue": 5000 + month_index * 50,
+                    "customer_total_orders": 20 + customer_index,
+                    "customer_avg_ticket": 150.0,
+                    "customer_frequency": 1.5,
+                    "customer_frequency_log1p": np.log1p(1.5),
+                    "days_since_last_order": 8 + customer_index,
+                    "is_active_customer": True,
+                    "return_rate_30d": 0.01,
+                    "campaign_lift": 0.2,
+                    "coefficient_variation_30d": 0.3,
+                    "cluster_id": customer_index % 2,
+                    "snapshot_date": snapshot_date,
+                    "snapshot_month": snapshot_date.month,
+                    "snapshot_quarter": snapshot_date.quarter,
+                    "target_30d_sales": rolling_sales * 1.1,
+                    "baseline_30d_sales": rolling_sales,
+                }
+            )
+    training_df = pd.DataFrame(rows)
+
+    forecaster = DemandForecaster()
+    X, y = forecaster.build_training_frame(training_df)
+    forecaster.train(X, y)
+    inference_raw = forecaster.build_prediction_frame(training_df.tail(8))
+    original_predictions = forecaster.predict(inference_raw)
+    model_path = forecaster.save_model(tmp_path)
+
+    restored = DemandForecaster.load_model(model_path)
+    restored_predictions = restored.predict(inference_raw)
+
+    assert np.allclose(original_predictions, restored_predictions)
+
+
+def test_daily_clustering_reuses_historical_model_artifact(tmp_path: Path) -> None:
+    historical_dir = tmp_path / "backend" / "processed_data" / "historical"
+    daily_dir = tmp_path / "backend" / "processed_data" / "daily"
+    historical_dir.mkdir(parents=True)
+    daily_dir.mkdir(parents=True)
+
+    _build_client_table().to_csv(historical_dir / "clients.csv", index=False)
+    _build_client_table().iloc[:1].to_csv(daily_dir / "clients.csv", index=False)
+
+    historical_output = run_customer_clustering("historical", project_root=tmp_path)
+    daily_output = run_customer_clustering("daily", project_root=tmp_path)
+
+    assert historical_output.exists()
+    assert daily_output.exists()
+    assignments = pd.read_parquet(daily_output)
+    assert len(assignments) == 1
+    assert "cluster_id" in assignments.columns
+
+
 def test_snapshot_target_uses_future_window_only() -> None:
     sales = pd.DataFrame(
         {
@@ -639,6 +743,126 @@ def test_next_purchase_run_writes_metrics_artifact(tmp_path: Path) -> None:
     metrics = json.loads(artifacts["next_purchase_metrics"].read_text(encoding="utf-8"))
     assert "prediction_rows" in metrics
     assert "historical_validation_proxy" in metrics
+
+
+def test_daily_model_evaluation_loads_historical_forecast_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    historical_output_dir = tmp_path / "backend" / "commodity-ai-engine" / "output" / "historical"
+    historical_output_dir.mkdir(parents=True)
+
+    rows = []
+    for month_index, snapshot_date in enumerate(
+        pd.date_range("2024-01-31", periods=18, freq="M"),
+        start=1,
+    ):
+        for customer_index in range(4):
+            customer_id = f"C{customer_index}"
+            product_id = "P1" if customer_index % 2 == 0 else "P2"
+            rolling_sales = 100 + month_index * 5 + customer_index * 10
+            rows.append(
+                {
+                    "customer_id": customer_id,
+                    "product_id": product_id,
+                    "rolling_sales_30d": rolling_sales,
+                    "sales_growth_30d": 0.05 * (customer_index + 1),
+                    "days_since_last_product_order": 5 + customer_index,
+                    "client_product_frequency": 1.0 + customer_index * 0.2,
+                    "client_product_avg_ticket": 90 + customer_index * 10,
+                    "client_product_return_rate": 0.01 * customer_index,
+                    "campaign_lift_product": 0.1,
+                    "client_product_total_revenue": rolling_sales * 6,
+                    "client_product_total_orders": 5 + customer_index,
+                    "analytic_block": "Commodities",
+                    "category": "Categoria C1",
+                    "product_family": "Familia C1" if product_id == "P1" else "Familia C2",
+                    "product_total_revenue": 10000 + month_index * 100,
+                    "product_total_units": 500,
+                    "product_frequency": 10 + month_index,
+                    "product_growth_30d": 0.1,
+                    "product_return_rate": 0.02,
+                    "product_customer_count": 50,
+                    "postal_code": "08001",
+                    "province": "Barcelona",
+                    "customer_total_revenue": 5000 + month_index * 50,
+                    "customer_total_orders": 20 + customer_index,
+                    "customer_avg_ticket": 150.0,
+                    "customer_frequency": 1.5,
+                    "customer_frequency_log1p": np.log1p(1.5),
+                    "days_since_last_order": 8 + customer_index,
+                    "is_active_customer": True,
+                    "return_rate_30d": 0.01,
+                    "campaign_lift": 0.2,
+                    "coefficient_variation_30d": 0.3,
+                    "cluster_id": customer_index % 2,
+                    "snapshot_date": snapshot_date,
+                    "snapshot_month": snapshot_date.month,
+                    "snapshot_quarter": snapshot_date.quarter,
+                    "target_30d_sales": rolling_sales * 1.1,
+                    "baseline_30d_sales": rolling_sales,
+                }
+            )
+    training_df = pd.DataFrame(rows)
+    forecaster = DemandForecaster()
+    X, y = forecaster.build_training_frame(training_df)
+    forecaster.train(X, y)
+    forecaster.save_model(historical_output_dir)
+
+    latest_frame = training_df.tail(4).drop(columns=["target_30d_sales"]).reset_index(drop=True)
+    daily_cluster_output = tmp_path / "backend" / "commodity-ai-engine" / "output" / "daily" / "cluster_assignments.parquet"
+    daily_cluster_output.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        {
+            "customer_id": latest_frame["customer_id"].astype("string"),
+            "cluster_id": latest_frame["cluster_id"].astype(int),
+        }
+    ).to_parquet(daily_cluster_output, index=False)
+
+    monkeypatch.setattr(
+        pipeline_module,
+        "run_customer_clustering",
+        lambda mode, project_root=None: daily_cluster_output,
+    )
+    monkeypatch.setattr(
+        pipeline_module,
+        "_build_latest_snapshot_frame",
+        lambda mode, project_root=None: (latest_frame.copy(), pd.Timestamp("2025-04-30")),
+    )
+    dummy_artifact = tmp_path / "dummy.json"
+    dummy_artifact.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        pipeline_module,
+        "run_demand_leakage",
+        lambda mode, project_root=None, historical_panel=None, backtest_predictions=None: {
+            "leakage_output": dummy_artifact,
+            "leakage_metrics": dummy_artifact,
+        },
+    )
+    monkeypatch.setattr(
+        pipeline_module,
+        "run_capture_scoring",
+        lambda mode, project_root=None: {
+            "capture_output": dummy_artifact,
+            "capture_metrics": dummy_artifact,
+        },
+    )
+    monkeypatch.setattr(
+        pipeline_module,
+        "run_next_purchase_prediction",
+        lambda mode, project_root=None: {
+            "next_purchase_output": dummy_artifact,
+            "next_purchase_metrics": dummy_artifact,
+        },
+    )
+
+    artifacts = run_model_evaluation("daily", project_root=tmp_path)
+
+    assert artifacts["forecast_output"].exists()
+    assert artifacts["forecast_metrics"].name == "forecast_inference_metrics.json"
+    metrics = json.loads(artifacts["forecast_metrics"].read_text(encoding="utf-8"))
+    assert metrics["mode"] == "daily_inference"
+    assert metrics["inference_rows"] == len(latest_frame)
 
 
 def test_historical_leakage_run_writes_metrics_artifact(tmp_path: Path) -> None:

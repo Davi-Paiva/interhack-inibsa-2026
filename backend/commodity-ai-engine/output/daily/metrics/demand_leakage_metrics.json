@@ -1,0 +1,28 @@
+{
+  "rows": 18734,
+  "candidate_count": 1905,
+  "candidate_share": 0.10168677271271485,
+  "actionable_count": 1105,
+  "actionable_share": 0.05898366606170599,
+  "routed_to_technical_count": 800,
+  "routed_to_technical_share": 0.04270310665100886,
+  "score_distribution": {
+    "min": 0.0,
+    "mean": 0.06021004036085452,
+    "median": 0.0,
+    "p90": 0.23569155820603782,
+    "p99": 0.7695148873364156,
+    "max": 0.9662021801150042
+  },
+  "risk_bucket_counts": {
+    "high": 1316,
+    "low": 430,
+    "medium": 718,
+    "none": 16270
+  },
+  "cluster_mix": {
+    "0": 43,
+    "1": 501,
+    "2": 561
+  }
+}
