@@ -19,9 +19,11 @@ from commodity_engine import (  # noqa: E402
     CaptureScoringEngine,
     DemandLeakageDetector,
     DemandForecaster,
+    NextPurchasePredictor,
     build_historical_training_panel,
     run_capture_scoring,
     run_demand_leakage,
+    run_next_purchase_prediction,
 )
 
 
@@ -135,6 +137,55 @@ def _build_leakage_output_table() -> pd.DataFrame:
     )
 
 
+def _build_capture_output_table() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "customer_id": ["C000", "C001", "C002"],
+            "product_id": ["P1", "P1", "P2"],
+            "cluster_id": [0, 1, 2],
+            "capture_score": [42.0, 33.0, 25.0],
+            "priority_rank": [1, 2, 3],
+            "priority_band": ["critical", "high", "medium"],
+            "recommended_action": [
+                "Call within 24h",
+                "Follow up this week",
+                "Monitor timing",
+            ],
+            "leakage_score": [0.30, 0.24, 0.28],
+            "gap_units": [80.0, 80.0, 70.0],
+            "customer_total_revenue": [1200.0, 1800.0, 950.0],
+            "customer_avg_ticket": [100.0, 180.0, 118.75],
+            "customer_frequency": [1.2, 1.0, 0.8],
+            "days_since_last_order": [10, 25, 40],
+            "sales_growth_30d": [0.1, -0.2, -0.1],
+        }
+    )
+
+
+def _build_sales_history_table() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "invoice_id": ["I1", "I2", "I3", "I4", "I5", "I6", "I7", "I8"],
+            "date": [
+                "2025-01-01",
+                "2025-01-20",
+                "2025-02-10",
+                "2025-03-01",
+                "2025-01-05",
+                "2025-02-04",
+                "2025-03-08",
+                "2025-04-12",
+            ],
+            "client_id": ["C000", "C000", "C000", "C000", "C002", "C002", "C002", "C002"],
+            "product_id": ["P1", "P1", "P1", "P1", "P2", "P2", "P2", "P2"],
+            "units": [1] * 8,
+            "sales_value": [10.0] * 8,
+            "is_return": [False] * 8,
+            "is_campaign_period": [False] * 8,
+        }
+    )
+
+
 def _build_leakage_panel() -> pd.DataFrame:
     return pd.DataFrame(
         {
@@ -241,6 +292,23 @@ def test_capture_loader_supports_leakage_and_feature_inputs(tmp_path: Path) -> N
     assert "family" in merged.columns or "product_family" in merged.columns
 
 
+def test_next_purchase_loader_supports_capture_and_feature_inputs(tmp_path: Path) -> None:
+    _build_client_table().to_csv(tmp_path / "clients.csv", index=False)
+    _build_client_product_table().to_csv(tmp_path / "client_product_features.csv", index=False)
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    _build_capture_output_table().to_parquet(output_dir / "capture_opportunities.parquet", index=False)
+    _build_cluster_assignments().iloc[:3].to_parquet(output_dir / "cluster_assignments.parquet", index=False)
+
+    predictor = NextPurchasePredictor()
+    merged = predictor.load_inputs(tmp_path, output_dir)
+
+    assert len(merged) == 3
+    assert "days_since_last_product_order" in merged.columns
+    assert "client_product_frequency" in merged.columns
+    assert "coefficient_variation_30d" in merged.columns
+
+
 def test_leakage_schema_validation_fails_when_required_columns_are_missing() -> None:
     detector = DemandLeakageDetector()
     invalid = pd.DataFrame(
@@ -269,6 +337,20 @@ def test_capture_schema_validation_fails_when_required_columns_are_missing() -> 
 
     with pytest.raises(ValueError, match="required columns"):
         scorer.validate_schema(invalid)
+
+
+def test_next_purchase_schema_validation_fails_when_required_columns_are_missing() -> None:
+    predictor = NextPurchasePredictor()
+    invalid = pd.DataFrame(
+        {
+            "customer_id": ["C000"],
+            "product_id": ["P1"],
+            "capture_score": [42.0],
+        }
+    )
+
+    with pytest.raises(ValueError, match="required columns"):
+        predictor.validate_schema(invalid)
 
 
 def test_cluster_schema_allows_real_client_extras() -> None:
@@ -503,6 +585,59 @@ def test_capture_run_writes_metrics_artifact(tmp_path: Path) -> None:
 
     metrics = json.loads(artifacts["capture_metrics"].read_text(encoding="utf-8"))
     assert "scored_rows" in metrics
+    assert "historical_validation_proxy" in metrics
+
+
+def test_next_purchase_predictions_are_valid_and_contact_windows_are_coherent() -> None:
+    predictor = NextPurchasePredictor()
+    frame = _build_capture_output_table().merge(
+        _build_client_product_table().rename(columns={"client_id": "customer_id"}),
+        on=["customer_id", "product_id"],
+        how="left",
+    ).merge(
+        _build_client_table().rename(columns={"client_id": "customer_id"})[
+            ["customer_id", "coefficient_variation_30d", "days_since_last_order"]
+        ],
+        on="customer_id",
+        how="left",
+    )
+    if "sales_growth_30d_x" in frame.columns and "sales_growth_30d" not in frame.columns:
+        frame = frame.rename(columns={"sales_growth_30d_x": "sales_growth_30d"})
+
+    predictions = predictor.build_predictions(frame, pd.Timestamp("2025-04-30"))
+
+    assert predictions["expected_next_purchase_date"].notna().all()
+    assert predictions["purchase_probability"].between(0, 1).all()
+    assert (
+        pd.to_datetime(predictions["contact_window_start"])
+        <= pd.to_datetime(predictions["contact_window_end"])
+    ).all()
+    assert (
+        pd.to_datetime(predictions["contact_window_end"])
+        < pd.to_datetime(predictions["expected_next_purchase_date"])
+    ).all()
+
+
+def test_next_purchase_run_writes_metrics_artifact(tmp_path: Path) -> None:
+    project_root = tmp_path
+    features_dir = project_root / "backend" / "processed_data" / "historical"
+    output_dir = project_root / "backend" / "commodity-ai-engine" / "output" / "historical"
+    features_dir.mkdir(parents=True)
+    output_dir.mkdir(parents=True)
+
+    _build_client_table().iloc[:3].to_csv(features_dir / "clients.csv", index=False)
+    _build_client_product_table().iloc[:3].to_csv(features_dir / "client_product_features.csv", index=False)
+    _build_capture_output_table().to_parquet(output_dir / "capture_opportunities.parquet", index=False)
+    _build_cluster_assignments().iloc[:3].to_parquet(output_dir / "cluster_assignments.parquet", index=False)
+    _build_sales_history_table().to_csv(features_dir / "sales_enriched.csv", index=False)
+
+    artifacts = run_next_purchase_prediction("historical", project_root=project_root)
+
+    assert artifacts["next_purchase_output"].exists()
+    assert artifacts["next_purchase_metrics"].exists()
+
+    metrics = json.loads(artifacts["next_purchase_metrics"].read_text(encoding="utf-8"))
+    assert "prediction_rows" in metrics
     assert "historical_validation_proxy" in metrics
 
 

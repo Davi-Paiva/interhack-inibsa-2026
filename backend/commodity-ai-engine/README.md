@@ -29,6 +29,7 @@ python src/commodity_engine.py --mode historical --task clustering
 python src/commodity_engine.py --mode historical --task forecast
 python src/commodity_engine.py --mode historical --task leakage
 python src/commodity_engine.py --mode historical --task capture
+python src/commodity_engine.py --mode historical --task next_purchase
 ```
 
 Available tasks:
@@ -37,6 +38,7 @@ Available tasks:
 - `evaluation`
 - `leakage`
 - `capture`
+- `next_purchase`
 
 ## Outputs
 
@@ -46,11 +48,13 @@ Main artifacts:
 - `consumption_forecast.parquet`
 - `demand_leakage_signals.parquet`
 - `capture_opportunities.parquet`
+- `next_purchase_predictions.parquet`
 - `metrics/cluster_metrics.json`
 - `metrics/forecast_metrics.json`
 - `metrics/forecast_backtest_predictions.parquet`
 - `metrics/demand_leakage_metrics.json`
 - `metrics/capture_opportunity_metrics.json`
+- `metrics/next_purchase_metrics.json`
 
 ## Entry Points
 
@@ -60,6 +64,7 @@ Use these functions from code:
 - `run_consumption_forecast()`
 - `run_demand_leakage()`
 - `run_capture_scoring()`
+- `run_next_purchase_prediction()`
 
 ## Notes
 

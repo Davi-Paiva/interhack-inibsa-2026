@@ -1,0 +1,47 @@
+{
+  "source_rows": 39,
+  "prediction_rows": 39,
+  "probability_distribution": {
+    "min": 0.2393478934209034,
+    "mean": 0.4979058334746295,
+    "median": 0.5226922069865864,
+    "p90": 0.7056122751365099,
+    "max": 0.7640355287489325
+  },
+  "days_until_purchase_distribution": {
+    "min": 1,
+    "mean": 9.692307692307692,
+    "median": 1.0,
+    "p90": 34.400000000000006,
+    "max": 52
+  },
+  "priority_band_counts": {
+    "critical": 3,
+    "high": 9,
+    "low": 9,
+    "medium": 18
+  },
+  "due_within_7d": 26,
+  "due_within_14d": 30,
+  "due_within_30d": 33,
+  "actionable_capture_rows": 39,
+  "coherent_contact_windows_share": 1.0,
+  "historical_validation_proxy": {
+    "rows": 39,
+    "interval_mae_days": 13.728705937967975,
+    "interval_median_ae_days": 10.095238095238095,
+    "interval_within_7d": 0.46153846153846156,
+    "interval_within_14d": 0.5641025641025641,
+    "interval_within_30d": 0.9230769230769231,
+    "due_soon_7d_rate": 0.7692307692307693,
+    "probability_ranking": {
+      "base_rate": 0.7692307692307693,
+      "precision_at_10.0%": 1.0,
+      "lift_at_10.0%": 1.2999999999999998,
+      "precision_at_25.0%": 0.8888888888888888,
+      "lift_at_25.0%": 1.1555555555555554,
+      "precision_at_50.0%": 0.7368421052631579,
+      "lift_at_50.0%": 0.9578947368421051
+    }
+  }
+}
